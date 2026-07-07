@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\user1\\Documents\\.NET CORE\\New folder\\project\\project.csproj": {}
+    "C:\\Users\\user1\\Documents\\CTD\\git-practice\\project\\project.csproj": {}
   },
   "projects": {
-    "C:\\Users\\user1\\Documents\\.NET CORE\\New folder\\project\\project.csproj": {
+    "C:\\Users\\user1\\Documents\\CTD\\git-practice\\project\\project.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\user1\\Documents\\.NET CORE\\New folder\\project\\project.csproj",
+        "projectUniqueName": "C:\\Users\\user1\\Documents\\CTD\\git-practice\\project\\project.csproj",
         "projectName": "project",
-        "projectPath": "C:\\Users\\user1\\Documents\\.NET CORE\\New folder\\project\\project.csproj",
+        "projectPath": "C:\\Users\\user1\\Documents\\CTD\\git-practice\\project\\project.csproj",
         "packagesPath": "C:\\Users\\user1\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\user1\\Documents\\.NET CORE\\New folder\\project\\obj\\",
+        "outputPath": "C:\\Users\\user1\\Documents\\CTD\\git-practice\\project\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"

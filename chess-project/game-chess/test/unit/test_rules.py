@@ -1,4 +1,5 @@
 from rules.piece_rules import is_legal_move
+from rules.piece_rules import is_legal_pawn_move, is_legal_pawn_capture
 
 
 def test_king_one_step_legal():
@@ -8,7 +9,6 @@ def test_king_one_step_legal():
 
 def test_king_two_steps_illegal():
     assert is_legal_move("K", (3, 3), (3, 5)) is False
-
 
 def test_rook_straight_line_legal():
     assert is_legal_move("R", (0, 0), (0, 5)) is True
@@ -45,6 +45,28 @@ def test_knight_straight_illegal():
     assert is_legal_move("N", (3, 3), (3, 5)) is False
 
 
-def test_pawn_always_legal():
-    assert is_legal_move("P", (3, 3), (3, 4)) is True
-    assert is_legal_move("P", (3, 3), (7, 0)) is True
+def test_white_pawn_moves_upward():
+    assert is_legal_pawn_move(0, -1, "w", 6) is True
+
+
+def test_black_pawn_moves_downward():
+    assert is_legal_pawn_move(0, 1, "b", 1) is True
+
+
+def test_pawn_two_cells_only_from_start_row():
+    assert is_legal_pawn_move(0, -2, "w", 6) is True
+    assert is_legal_pawn_move(0, -2, "w", 5) is False
+
+
+def test_pawn_cannot_move_two_cells_diagonally():
+    assert is_legal_pawn_move(1, -2, "w", 6) is False
+
+
+def test_pawn_capture_diagonal_only():
+    assert is_legal_pawn_capture(1, -1, "w") is True
+    assert is_legal_pawn_capture(-1, -1, "w") is True
+    assert is_legal_pawn_capture(1, 1, "b") is True
+
+
+def test_pawn_cannot_capture_forward():
+    assert is_legal_pawn_capture(0, -1, "w") is False

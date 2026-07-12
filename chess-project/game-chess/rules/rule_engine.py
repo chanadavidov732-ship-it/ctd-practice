@@ -63,6 +63,7 @@ def _check_pawn_move(board, piece_color, from_pos, to_pos):
     if is_legal_pawn_move(dx, dy, piece_color, from_row):
         if dest_token != ".":
             return BLOCKED  
+        return OK   
 
     if is_legal_pawn_capture(dx, dy, piece_color):
         if dest_token == ".":

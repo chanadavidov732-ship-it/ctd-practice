@@ -48,3 +48,10 @@ def is_legal_move(piece_type, from_pos, to_pos):
     if validator is None:
         return False
     return validator(dx, dy)
+
+
+SLIDING_PIECES = {"Q", "R", "B"}
+
+
+def is_sliding_piece(piece_type):
+    return piece_type in SLIDING_PIECES

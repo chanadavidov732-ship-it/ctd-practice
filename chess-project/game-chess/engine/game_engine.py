@@ -1,7 +1,7 @@
 from model.piece import token_type
 from rules import rule_engine
 from realtime.motion import calculate_duration, DEFAULT_SPEED
-
+from model.piece import token_type, token_color
 
 class GameEngine:
 
@@ -25,8 +25,10 @@ class GameEngine:
             return
 
         # 3. האם ה-Rule Engine מאשר?
-        piece_type = token_type(self.board.get_piece(from_pos))
-        result = rule_engine.check_move(self.board, piece_type, from_pos, to_pos)
+        token = self.board.get_piece(from_pos)
+        piece_type = token_type(token)
+        piece_color = token_color(token)
+        result = rule_engine.check_move(self.board, piece_type, piece_color, from_pos, to_pos)
         if result != rule_engine.OK:
             return
 

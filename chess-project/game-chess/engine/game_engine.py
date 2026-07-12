@@ -4,12 +4,16 @@ from realtime.motion import calculate_duration, DEFAULT_SPEED
 
 
 class GameEngine:
+
     def __init__(self, board, game_state, arbiter, speed=DEFAULT_SPEED):
         self.board = board
         self.game_state = game_state
         self.arbiter = arbiter
         self.speed = speed
-        self.is_over = False  # TODO (שלב 7): יעודכן ע"י דיווח לכידת מלך
+        self.is_over = False
+
+    def is_locked(self, pos):
+        return pos in self.game_state.locked
 
     def request_move(self, from_pos, to_pos):
         # 1. האם המשחק נגמר?
@@ -34,3 +38,4 @@ class GameEngine:
 
     def advance_time(self, ms):
         self.arbiter.advance_time(ms)
+

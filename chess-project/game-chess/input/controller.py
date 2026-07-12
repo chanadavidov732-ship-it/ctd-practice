@@ -1,6 +1,5 @@
 from model.piece import token_color
 
-
 class Controller:
     def __init__(self, board, board_mapper, game_engine):
         self.board = board
@@ -12,9 +11,12 @@ class Controller:
         pos = self.board_mapper.pixel_to_cell(x, y)
 
         if pos is None:
-            # קליק מחוץ ללוח = ביטול בחירה
             self.selected = None
             return
+
+        if self.game_engine.is_locked(pos):
+            # משבצת באמצע תנועה - הקליק מתעלם לגמרי
+            return    
 
         token = self.board.get_piece(pos)
         color = token_color(token)

@@ -1,5 +1,7 @@
 from model.piece import token_color
 from rules.piece_rules import is_legal_move, is_sliding_piece
+from model.piece import token_color
+from rules.piece_rules import is_legal_move, is_sliding_piece, is_legal_pawn_move, is_legal_pawn_capture  
 
 OK = "OK"
 OUT_OF_BOUNDS = "OUT_OF_BOUNDS"
@@ -31,10 +33,11 @@ def _squares_between(from_pos, to_pos):
 
 
 def check_move(board, piece_type, piece_color, from_pos, to_pos):
-    """מחזיר קוד תוצאה ברור: OK / OUT_OF_BOUNDS / ILLEGAL_SHAPE / BLOCKED / FRIENDLY_FIRE.
-    אינו מבצע שום שינוי בלוח."""
     if not board.is_inside(to_pos):
         return OUT_OF_BOUNDS
+
+    if piece_type == "P":
+        return _check_pawn_move(board, piece_color, from_pos, to_pos)
 
     if not is_legal_move(piece_type, from_pos, to_pos):
         return ILLEGAL_SHAPE
@@ -49,3 +52,23 @@ def check_move(board, piece_type, piece_color, from_pos, to_pos):
         return FRIENDLY_FIRE
 
     return OK
+
+
+def _check_pawn_move(board, piece_color, from_pos, to_pos):
+    dx = to_pos[0] - from_pos[0]
+    dy = to_pos[1] - from_pos[1]
+    from_row = from_pos[1]
+    dest_token = board.get_piece(to_pos)
+
+    if is_legal_pawn_move(dx, dy, piece_color, from_row):
+        if dest_token != ".":
+            return BLOCKED  
+
+    if is_legal_pawn_capture(dx, dy, piece_color):
+        if dest_token == ".":
+            return ILLEGAL_SHAPE  
+        if token_color(dest_token) == piece_color:
+            return FRIENDLY_FIRE
+        return OK
+
+    return ILLEGAL_SHAPE

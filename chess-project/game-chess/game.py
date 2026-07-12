@@ -1,3 +1,4 @@
+
 import math
 
 VALID_TOKENS = {
@@ -40,18 +41,73 @@ def print_board(board):
         print(" ".join(row))
 
 
+# ---------- movement shape validation (Strategy per piece type) ----------
+
+def _is_straight_line(dx, dy):
+    return (dx == 0) != (dy == 0)  # exactly one of them is zero
+
+
+def _is_diagonal(dx, dy):
+    return dx != 0 and abs(dx) == abs(dy)
+
+
+def _validate_king(dx, dy):
+    return max(abs(dx), abs(dy)) == 1
+
+
+def _validate_rook(dx, dy):
+    return _is_straight_line(dx, dy)
+
+
+def _validate_bishop(dx, dy):
+    return _is_diagonal(dx, dy)
+
+
+def _validate_queen(dx, dy):
+    return _is_straight_line(dx, dy) or _is_diagonal(dx, dy)
+
+
+def _validate_knight(dx, dy):
+    return (abs(dx), abs(dy)) in {(1, 2), (2, 1)}
+
+
+def _validate_pawn(dx, dy):
+    return True
+
+
+MOVEMENT_VALIDATORS = {
+    "K": _validate_king,
+    "Q": _validate_queen,
+    "R": _validate_rook,
+    "B": _validate_bishop,
+    "N": _validate_knight,
+    "P": _validate_pawn,
+}
+
+
+def is_legal_move(piece_type, from_pos, to_pos):
+    dx = to_pos[0] - from_pos[0]
+    dy = to_pos[1] - from_pos[1]
+    validator = MOVEMENT_VALIDATORS.get(piece_type)
+    if validator is None:
+        return False
+    return validator(dx, dy)
+
+
 class Game:
     def __init__(self, board):
         self.board = board
         self.height = len(board)
         self.width = len(board[0])
         self.square_size = 100
-        self.speed = 200
+        self.speed = 200  # ms per square (euclidean distance)
 
         self.clock = 0
-        self.selected = None
-        self.pending_moves = []
-        self.locked = set()
+        self.selected = None  # {"pos": (col, row), "color": "w"/"b"}
+        self.pending_moves = []  # list of dicts: from, to, token, completion_time
+        self.locked = set()  # positions (col, row) currently mid-move
+
+    # ---------- helpers ----------
 
     def get_piece(self, pos):
         col, row = pos
@@ -79,11 +135,19 @@ class Game:
             return None
         return token[0]
 
+    @staticmethod
+    def token_type(token):
+        if token == ".":
+            return None
+        return token[1]
+
     def calculate_duration(self, from_pos, to_pos):
         dx = to_pos[0] - from_pos[0]
         dy = to_pos[1] - from_pos[1]
         distance = math.sqrt(dx * dx + dy * dy)
         return distance * self.speed
+
+    # ---------- commands ----------
 
     def handle_click(self, x, y):
         pos = self.pixel_to_cell(x, y)
@@ -105,8 +169,12 @@ class Game:
             self.selected = {"pos": pos, "color": color}
             return
 
-        self.send_move_request(self.selected["pos"], pos)
+        from_pos = self.selected["pos"]
+        piece_type = self.token_type(self.get_piece(from_pos))
         self.selected = None
+
+        if is_legal_move(piece_type, from_pos, pos):
+            self.send_move_request(from_pos, pos)
 
     def handle_wait(self, ms):
         self.clock += ms

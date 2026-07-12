@@ -1,7 +1,6 @@
-VALID_TOKENS = {
-    ".", "wK", "wQ", "wR", "wB", "wN", "wP",
-    "bK", "bQ", "bR", "bB", "bN", "bP"
-}
+from rules.piece_registry import PIECE_TYPES, COLORS
+
+VALID_TOKENS = {"."} | {c + t for c in COLORS for t in PIECE_TYPES}
 
 
 def read_board():

@@ -4,7 +4,7 @@ from realtime.realtime_arbiter import RealTimeArbiter
 from engine.game_engine import GameEngine
 from input.board_mapper import BoardMapper
 from input.controller import Controller
-from io.board_parser import read_board, validate_board
+from io_options.board_parser import read_board, validate_board
 from text_test.script_runner import run_commands
 
 

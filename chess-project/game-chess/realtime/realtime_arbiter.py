@@ -1,6 +1,6 @@
 from model.piece import token_type, token_color
 from rules.piece_rules import pawn_promotion_row
-from realtime.motion import JUMP_DURATION_MS   # ADDED
+from realtime.motion import JUMP_DURATION_MS
 
 class RealTimeArbiter:
     def __init__(self, board, game_state):
@@ -28,15 +28,13 @@ class RealTimeArbiter:
 
         settled = []
         for move in due:
-            # ADDED: כלל 3 - תפיסה באוויר, קודמת ליישוב הרגיל
             if move["to"] in self.game_state.airborne:
                 defender_token = self.board.get_piece(move["to"])
                 if token_color(defender_token) != token_color(move["token"]):
-                    self.board.set_piece(move["from"], ".")     # הכלי התוקף מוסר מהמקור
-                    # אין עדכון ל-move["to"] - הכלי שבאוויר נשאר במקומו, לא זז
+                    self.board.set_piece(move["from"], ".")     
                     self.game_state.locked.discard(move["from"])
                     self.game_state.pending_moves.remove(move)
-                    move["captured_token"] = move["token"]       # הכלי שהגיע הוא זה שנלכד
+                    move["captured_token"] = move["token"]      
                     move["air_capture"] = True
                     settled.append(move)
                     continue
@@ -60,17 +58,17 @@ class RealTimeArbiter:
 
         return settled
     
-    def start_jump(self, pos):                                  # ADDED
+    def start_jump(self, pos):
         self.game_state.airborne[pos] = self.game_state.clock + JUMP_DURATION_MS
 
     def advance_time(self, ms):
         self.game_state.clock += ms
         settled = self._settle_due_moves()
-        self._land_due_jumps()                                  # ADDED: נחיתה מתבצעת אחרי יישוב המהלכים
+        self._land_due_jumps()                                
         return settled
 
-    def _land_due_jumps(self):                                  # ADDED
+    def _land_due_jumps(self):
         due_positions = [pos for pos, t in self.game_state.airborne.items()
                           if t <= self.game_state.clock]
         for pos in due_positions:
-            del self.game_state.airborne[pos]                   # כלל 4: נחיתה רגילה - הכלי כבר במקומו, אין שינוי בלוח
+            del self.game_state.airborne[pos]               

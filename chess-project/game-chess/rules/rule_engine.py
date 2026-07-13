@@ -1,7 +1,5 @@
 from model.piece import token_color
-from rules.piece_rules import is_legal_move, is_sliding_piece
-from model.piece import token_color
-from rules.piece_rules import is_legal_move, is_sliding_piece, is_legal_pawn_move, is_legal_pawn_capture  
+from rules.piece_rules import is_legal_move, is_sliding_piece, is_legal_pawn_move, is_legal_pawn_capture
 
 OK = "OK"
 OUT_OF_BOUNDS = "OUT_OF_BOUNDS"
@@ -19,7 +17,6 @@ def _step(delta):
 
 
 def _squares_between(from_pos, to_pos):
-    """מחזיר את המשבצות שבין from_pos ל-to_pos (לא כולל שני הקצוות)."""
     dx = _step(to_pos[0] - from_pos[0])
     dy = _step(to_pos[1] - from_pos[1])
 

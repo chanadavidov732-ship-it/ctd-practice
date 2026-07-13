@@ -1,12 +1,8 @@
-from model.piece import token_type
-from rules import rule_engine
-from realtime.motion import calculate_duration, DEFAULT_SPEED
 from model.piece import token_type, token_color
-from model.piece import token_type, token_color   # token_type כבר בשימוש; ודא ששניהם מיובאים
-from realtime.motion import calculate_duration, DEFAULT_SPEED, JUMP_DURATION_MS   # CHANGED: added JUMP_DURATION_MS import
+from rules import rule_engine
+from realtime.motion import calculate_duration, DEFAULT_SPEED, JUMP_DURATION_MS
 
 class GameEngine:
-
     def __init__(self, board, game_state, arbiter, speed=DEFAULT_SPEED):
         self.board = board
         self.game_state = game_state
@@ -23,7 +19,7 @@ class GameEngine:
             return
 
         # 2. האם קיימת כבר תנועה פעילה כלשהי על הלוח? (משאב "route" משותף)
-        if self.game_state.locked:          # CHANGED: היה "if from_pos in self.game_state.locked:"
+        if self.game_state.locked:
             return
 
         # 2. האם יש כבר תנועה פעילה על הכלי הזה?
@@ -45,18 +41,18 @@ class GameEngine:
         self.arbiter.start_motion(from_pos, to_pos, token, completion_time)
 
     def advance_time(self, ms):
-        settled = self.arbiter.advance_time(ms)   # CHANGED: כעת משתמשים בערך המוחזר
+        settled = self.arbiter.advance_time(ms)
         for move in settled:
-            if token_type(move["captured_token"]) == "K":   # ADDED: בדיקת לכידת מלך
+            if token_type(move["captured_token"]) == "K":
                 self.is_over = True
-    
-    def request_jump(self, pos):                              # ADDED
+
+    def request_jump(self, pos):
         if self.is_over:
             return
-        if pos in self.game_state.locked:                      # ADDED: כלל 5 - כלי בתנועה לא יכול לקפוץ
+        if pos in self.game_state.locked:                 
             return
-        if pos in self.game_state.airborne:                     # ADDED: כלי שכבר באוויר לא קופץ שוב
+        if pos in self.game_state.airborne:               
             return
-        if self.board.get_piece(pos) == ".":                    # ADDED: כלל 6 - אין כלי לקפוץ (כבר נלכד/ריק)
+        if self.board.get_piece(pos) == ".":       
             return
-        self.arbiter.start_jump(pos)                            # ADDED
+        self.arbiter.start_jump(pos)

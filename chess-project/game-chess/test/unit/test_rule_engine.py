@@ -41,34 +41,30 @@ def test_pawn_straight_move_blocked_by_any_piece():
     board = make_board([". . .", "bN . .", "wP . ."])
     assert rule_engine.check_move(board, "P", "w", (0, 2), (0, 1)) == rule_engine.BLOCKED
 
-
 def test_pawn_diagonal_capture_enemy_is_ok():
     board = make_board([". . .", ". bN .", "wP . ."])
     assert rule_engine.check_move(board, "P", "w", (0, 2), (1, 1)) == rule_engine.OK
-
 
 def test_pawn_diagonal_to_empty_is_illegal():
     board = make_board([". . .", ". . .", "wP . ."])
     assert rule_engine.check_move(board, "P", "w", (0, 2), (1, 1)) == rule_engine.ILLEGAL_SHAPE
 
 def test_pawn_two_cells_move_illegal_not_from_start():
-    grid = [". . .", ". . .", "wP . .", ". . .", ". . ."]  # CHANGED: 5 rows, wP at row2 (not start=4)
+    grid = [". . .", ". . .", "wP . .", ". . .", ". . ."] 
     board = make_board(grid)
     assert rule_engine.check_move(board, "P", "w", (0, 2), (0, 0)) == rule_engine.ILLEGAL_SHAPE
     
 def test_pawn_two_cell_move_with_clear_path_is_ok():
-    rows = [". . ."] * 5 + ["wP . .", ". . ."]   # CHANGED: wP at row5 (start row for height=7)
+    rows = [". . ."] * 5 + ["wP . .", ". . ."]  
     board = make_board(rows)
     assert rule_engine.check_move(board, "P", "w", (0, 5), (0, 3)) == rule_engine.OK
 
-
 def test_pawn_two_cell_move_blocked_mid_path():
-    rows = [". . ."] * 4 + ["bN . .", "wP . .", ". . ."]   # CHANGED: wP at row5, blocker at row4
+    rows = [". . ."] * 4 + ["bN . .", "wP . .", ". . ."]
     board = make_board(rows)
     assert rule_engine.check_move(board, "P", "w", (0, 5), (0, 3)) == rule_engine.BLOCKED
 
-
 def test_pawn_two_cell_move_clear_path_from_correct_start_row():
-    rows = [". . ."] * 5 + ["wP . .", ". . ."]   # CHANGED: same as first test
+    rows = [". . ."] * 5 + ["wP . .", ". . ."]  
     board = make_board(rows)
     assert rule_engine.check_move(board, "P", "w", (0, 5), (0, 3)) == rule_engine.OK

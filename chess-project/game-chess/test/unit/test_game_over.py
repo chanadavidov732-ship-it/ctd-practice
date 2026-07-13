@@ -24,8 +24,8 @@ def test_capturing_enemy_king_ends_game():
     rows = [ROW] * 7 + ["wR . . bK . . . ."]
     board, state, engine, controller = make_setup(rows)
 
-    controller.handle_click(50, 750)   # select wR at (0,7)
-    controller.handle_click(350, 750)  # move to (3,7), captures bK
+    controller.handle_click(50, 750)  
+    controller.handle_click(350, 750)  
     engine.advance_time(3000)
 
     assert board.get_piece((3, 7)) == "wR"
@@ -36,19 +36,17 @@ def test_moves_after_game_over_are_ignored():
     rows = [ROW] * 6 + ["wN . . . . . . .", "wR . . bK . . . ."]
     board, state, engine, controller = make_setup(rows)
 
-    controller.handle_click(50, 750)   # select wR at (0,7)
-    controller.handle_click(350, 750)  # move to (3,7), captures bK
-    engine.advance_time(3000)
+    controller.handle_click(50, 750)  
+    controller.handle_click(350, 750) 
 
     assert engine.is_over is True
 
-    # ניסיון מהלך נוסף אחרי סיום המשחק - צריך להתעלם
-    controller.handle_click(50, 650)   # select wN at (0,6)
-    controller.handle_click(250, 650)  # attempt move
+    controller.handle_click(50, 650)  
+    controller.handle_click(250, 650) 
 
     engine.advance_time(3000)
 
-    assert board.get_piece((0, 6)) == "wN"   # never moved, request was ignored
+    assert board.get_piece((0, 6)) == "wN"   
 
 
 def test_non_king_capture_does_not_end_game():

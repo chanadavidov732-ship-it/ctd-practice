@@ -22,13 +22,13 @@ ROW = ". . . . . . . ."
 def test_legal_move_completes_after_wait():
     board, state, engine, controller = make_setup([ROW] * 7 + ["wR . . . . . . ."])
 
-    controller.handle_click(50, 750)   # select rook at (0,7)
-    controller.handle_click(350, 750)  # move to (3,7)
+    controller.handle_click(50, 750)
+    controller.handle_click(350, 750)
 
     assert board.get_piece((0, 7)) == "wR"
     assert board.get_piece((3, 7)) == "."
 
-    engine.advance_time(3000)  # 3 squares * 1000ms  ← שונה מ-600
+    engine.advance_time(3000)
 
     assert board.get_piece((0, 7)) == "."
     assert board.get_piece((3, 7)) == "wR"
@@ -36,8 +36,8 @@ def test_legal_move_completes_after_wait():
 def test_illegal_move_is_ignored():
     board, state, engine, controller = make_setup([ROW] * 7 + ["wK . . . . . . ."])
 
-    controller.handle_click(50, 750)   # select king at (0,7)
-    controller.handle_click(350, 750)  # illegal: 3 squares straight
+    controller.handle_click(50, 750)
+    controller.handle_click(350, 750)
 
     engine.advance_time(1000)
 
@@ -50,9 +50,9 @@ def test_capture_enemy_piece():
     rows = [ROW] * 7 + ["wR . . bN . . . ."]
     board, state, engine, controller = make_setup(rows)
 
-    controller.handle_click(50, 750)   # select rook at (0,7)
-    controller.handle_click(350, 750)  # move to (3,7), enemy knight there
-    engine.advance_time(3000)  # ← שונה מ-600
+    controller.handle_click(50, 750)
+    controller.handle_click(350, 750)
+    engine.advance_time(3000)
 
     assert board.get_piece((3, 7)) == "wR"
 
@@ -60,18 +60,18 @@ def test_capture_enemy_piece():
 def test_locked_piece_click_is_ignored():
     board, state, engine, controller = make_setup([ROW] * 7 + ["wR . . . . . . ."])
 
-    controller.handle_click(50, 750)   # select rook
-    controller.handle_click(350, 750)  # send move request, rook now locked
+    controller.handle_click(50, 750)
+    controller.handle_click(350, 750)
 
-    controller.handle_click(50, 750)   # click origin while mid-move: ignored
+    controller.handle_click(50, 750)
     assert controller.selected is None
 
 
 def test_reselect_friendly_piece():
     board, state, engine, controller = make_setup([ROW] * 7 + ["wR wN . . . . . ."])
 
-    controller.handle_click(50, 750)   # select rook at (0,7)
-    controller.handle_click(150, 750)  # click friendly knight: replace selection
+    controller.handle_click(50, 750)
+    controller.handle_click(150, 750)
 
     assert controller.selected == {"pos": (1, 7), "color": "w"}
 
@@ -79,17 +79,14 @@ def test_reselect_friendly_piece():
 def test_piece_cannot_be_redirected_while_moving():
     board, state, engine, controller = make_setup([ROW] * 7 + ["wR . . . . . . ."])
 
-    controller.handle_click(50, 750)   # select rook at (0,7)
-    controller.handle_click(350, 750)  # move to (3,7), rook now locked, duration=3000ms
-
-    # ניסיון להפנות מחדש תוך כדי תנועה: קליק על מקור הכלי (נעול) - מתעלם
     controller.handle_click(50, 750)
-    # קליק על יעד אחר תוך כדי תנועה - אין בחירה פעילה, כלום לא קורה
+    controller.handle_click(350, 750)
+
+    controller.handle_click(50, 750)
     controller.handle_click(550, 750)
 
-    engine.advance_time(3000)  # 3 squares * 1000ms
+    engine.advance_time(3000)
 
-    # הכלי הגיע ליעד המקורי בלבד, לא הוסט
     assert board.get_piece((3, 7)) == "wR"
     assert board.get_piece((5, 7)) == "."
 
@@ -97,63 +94,61 @@ def test_piece_cannot_be_redirected_while_moving():
 def test_piece_can_move_again_immediately_after_arrival_no_cooldown():
     board, state, engine, controller = make_setup([ROW] * 7 + ["wR . . . . . . ."])
 
-    controller.handle_click(50, 750)   # select rook at (0,7)
-    controller.handle_click(350, 750)  # move to (3,7)
-    engine.advance_time(3000)          # arrival, locked cleared immediately
+    controller.handle_click(50, 750)
+    controller.handle_click(350, 750)
+    engine.advance_time(3000)
 
     assert board.get_piece((3, 7)) == "wR"
 
-    # מיד לאחר ההגעה - מהלך נוסף, ללא המתנה נוספת (no cooldown)
-    controller.handle_click(350, 750)  # select rook at new position (3,7)
-    controller.handle_click(650, 750)  # move to (6,7)
+    controller.handle_click(350, 750)
+    controller.handle_click(650, 750)
 
-    assert (3, 7) in state.locked  # הכלי שוב בתנועה, המהלך השני התקבל
+    assert (3, 7) in state.locked
 
 
 def test_second_piece_cannot_move_while_another_is_in_motion():
     rows = ["wR . .", ". . .", "bR . ."]
     board, state, engine, controller = make_setup(rows)
 
-    controller.handle_click(50, 50)    # select wR at (0,0)
-    controller.handle_click(250, 50)   # move wR to (2,0), 2000ms, locked={(0,0)}
+    controller.handle_click(50, 50)
+    controller.handle_click(250, 50)
 
-    controller.handle_click(50, 250)   # select bR at (0,2)
-    controller.handle_click(250, 250)  # attempt move bR to (2,2) - rejected, global lock active
+    controller.handle_click(50, 250)
+    controller.handle_click(250, 250)
 
     engine.advance_time(2000)
 
-    assert board.get_piece((2, 0)) == "wR"   # wR arrived
-    assert board.get_piece((0, 2)) == "bR"   # bR never moved
+    assert board.get_piece((2, 0)) == "wR"
+    assert board.get_piece((0, 2)) == "bR"
     assert board.get_piece((2, 2)) == "."
 
-    # ADDED
 def test_pawn_promotes_to_queen_on_last_row():
     rows = ["wP . . . . . . ."] + [ROW] * 7
     board, state, engine, controller = make_setup(rows)
 
-    controller.handle_click(50, 50)   # select wP at (0,0) — already at last row for test simplicity
+    controller.handle_click(50, 50)
 
 
 def test_pawn_promotes_to_queen_on_last_row():
-    rows = [ROW, "wP . . . . . . ."] + [ROW] * 6   # wP at row 1
+    rows = [ROW, "wP . . . . . . ."] + [ROW] * 6
     board, state, engine, controller = make_setup(rows)
 
-    controller.handle_click(50, 150)   # select wP at (0,1)
-    controller.handle_click(50, 50)    # move to (0,0) - last row for white
-    engine.advance_time(1000)          # 1 square * 1000ms
+    controller.handle_click(50, 150)
+    controller.handle_click(50, 50)
+    engine.advance_time(1000)
 
-    assert board.get_piece((0, 0)) == "wQ"   # promoted to queen
+    assert board.get_piece((0, 0)) == "wQ"
 
 
 def test_jump_captures_arriving_enemy_and_stays_in_place():
     rows = [ROW] * 5 + ["bR . . . . . . .", ". . . . . . . .", "wR . . . . . . ."]
     board, state, engine, controller = make_setup(rows)
 
-    controller.handle_jump(50, 550)    # select bR at (0,5), jump - airborne for 1000ms
-    controller.handle_click(50, 750)   # select wR at (0,7)
-    controller.handle_click(50, 550)   # move wR two squares up to (0,5), duration=2000ms
+    controller.handle_jump(50, 550)
+    controller.handle_click(50, 750)
+    controller.handle_click(50, 550)
 
-    engine.advance_time(2000)          # wR arrives while bR still airborne (1000ms jump < 2000ms move)
+    engine.advance_time(2000)
 
-    assert board.get_piece((0, 5)) == "bR"   # airborne piece stayed, captured the arriver
-    assert board.get_piece((0, 7)) == "."    # arriving piece removed from origin
+    assert board.get_piece((0, 5)) == "bR"
+    assert board.get_piece((0, 7)) == "."

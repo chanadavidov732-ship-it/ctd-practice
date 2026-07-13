@@ -27,7 +27,7 @@ def test_piece_stays_in_place_before_arrival(capsys):
     controller.handle_click(50, 750)
     controller.handle_click(350, 750)
 
-    engine.advance_time(500)           # 500 < 3000 - עדיין לא הגיע, תקין כפי שהוא
+    engine.advance_time(500)      
     print_board(board)
     captured = capsys.readouterr()
 
@@ -41,7 +41,7 @@ def test_piece_arrives_after_enough_wait(capsys):
     controller.handle_click(50, 750)
     controller.handle_click(350, 750)
 
-    engine.advance_time(3000)          # ← שונה מ-600, בדיוק זמן ההגעה עם speed=1000
+    engine.advance_time(3000)       
     print_board(board)
     captured = capsys.readouterr()
 

@@ -27,7 +27,7 @@ def _validate_knight(dx, dy):
 
 
 
-def pawn_promotion_row(color, board_height):                    # CHANGED: was PAWN_PROMOTION_ROW dict
+def pawn_promotion_row(color, board_height):
     """שורת ההכתרה - הקצה הנגדי לשורת המוצא."""
     return 0 if color == "w" else board_height - 1
 
@@ -58,13 +58,13 @@ def is_sliding_piece(piece_type):
 
 def pawn_start_row(color, board_height):
     """שורת המוצא של רגלי - שורה אחת לפנים מהקצה של אותו צבע."""
-    return board_height - 2 if color == "w" else 1   # CHANGED: was board_height - 1 / 0
+    return board_height - 2 if color == "w" else 1
 
 def _pawn_forward_direction(color):
     return -1 if color == "w" else 1
 
 
-def is_legal_pawn_move(dx, dy, color, from_row, board_height):  # CHANGED: added board_height param
+def is_legal_pawn_move(dx, dy, color, from_row, board_height):
     forward = _pawn_forward_direction(color)
     if dx != 0:
         return False

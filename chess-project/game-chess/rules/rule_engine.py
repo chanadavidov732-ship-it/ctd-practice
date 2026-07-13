@@ -60,14 +60,18 @@ def _check_pawn_move(board, piece_color, from_pos, to_pos):
     from_row = from_pos[1]
     dest_token = board.get_piece(to_pos)
 
-    if is_legal_pawn_move(dx, dy, piece_color, from_row):
+    if is_legal_pawn_move(dx, dy, piece_color, from_row, board.height):
+        if abs(dy) == 2:
+            mid_pos = (from_pos[0], from_pos[1] + dy // 2)
+            if board.get_piece(mid_pos) != ".":
+                return BLOCKED
         if dest_token != ".":
-            return BLOCKED  
-        return OK   
+            return BLOCKED
+        return OK
 
     if is_legal_pawn_capture(dx, dy, piece_color):
         if dest_token == ".":
-            return ILLEGAL_SHAPE  
+            return ILLEGAL_SHAPE
         if token_color(dest_token) == piece_color:
             return FRIENDLY_FIRE
         return OK

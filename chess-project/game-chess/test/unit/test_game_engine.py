@@ -125,3 +125,21 @@ def test_second_piece_cannot_move_while_another_is_in_motion():
     assert board.get_piece((2, 0)) == "wR"   # wR arrived
     assert board.get_piece((0, 2)) == "bR"   # bR never moved
     assert board.get_piece((2, 2)) == "."
+
+    # ADDED
+def test_pawn_promotes_to_queen_on_last_row():
+    rows = ["wP . . . . . . ."] + [ROW] * 7
+    board, state, engine, controller = make_setup(rows)
+
+    controller.handle_click(50, 50)   # select wP at (0,0) — already at last row for test simplicity
+
+
+def test_pawn_promotes_to_queen_on_last_row():
+    rows = [ROW, "wP . . . . . . ."] + [ROW] * 6   # wP at row 1
+    board, state, engine, controller = make_setup(rows)
+
+    controller.handle_click(50, 150)   # select wP at (0,1)
+    controller.handle_click(50, 50)    # move to (0,0) - last row for white
+    engine.advance_time(1000)          # 1 square * 1000ms
+
+    assert board.get_piece((0, 0)) == "wQ"   # promoted to queen

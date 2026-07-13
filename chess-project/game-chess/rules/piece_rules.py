@@ -26,6 +26,11 @@ def _validate_knight(dx, dy):
     return (abs(dx), abs(dy)) in {(1, 2), (2, 1)}
 
 
+
+def pawn_promotion_row(color, board_height):                    # CHANGED: was PAWN_PROMOTION_ROW dict
+    """שורת ההכתרה - הקצה הנגדי לשורת המוצא."""
+    return 0 if color == "w" else board_height - 1
+
 MOVEMENT_VALIDATORS = {
     "K": _validate_king,
     "Q": _validate_queen,
@@ -52,29 +57,26 @@ def is_sliding_piece(piece_type):
     return piece_type in SLIDING_PIECES
 
 
+def pawn_start_row(color, board_height):                        # CHANGED: was PAWN_START_ROW dict
+    """שורת המוצא של רגלי - הקצה שממנו הוא מתחיל, יחסית לגובה הלוח."""
+    return board_height - 1 if color == "w" else 0
 
-# ADDED: שורת המוצא של רגלים לכל צבע, לצורך זיהוי "מהלך פתיחה כפול"
-PAWN_START_ROW = {"w": 6, "b": 1}
 
-
-# ADDED: כיוון התקדמות הרגלי לפי צבע (לבן = מעלה = row קטן יותר)
 def _pawn_forward_direction(color):
     return -1 if color == "w" else 1
 
 
-# ADDED: תבנית תנועה רגילה (ללא תפיסה) - עמודה קבועה, קדימה משבצת אחת, או שתיים משורת המוצא
-def is_legal_pawn_move(dx, dy, color, from_row):
+def is_legal_pawn_move(dx, dy, color, from_row, board_height):  # CHANGED: added board_height param
     forward = _pawn_forward_direction(color)
     if dx != 0:
         return False
     if dy == forward:
         return True
-    if dy == forward * 2 and from_row == PAWN_START_ROW[color]:
+    if dy == forward * 2 and from_row == pawn_start_row(color, board_height):
         return True
     return False
 
 
-# ADDED: תבנית תפיסה - אלכסון יחיד קדימה בלבד
 def is_legal_pawn_capture(dx, dy, color):
     forward = _pawn_forward_direction(color)
     return abs(dx) == 1 and dy == forward

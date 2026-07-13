@@ -2,6 +2,7 @@ from model.piece import token_type
 from rules import rule_engine
 from realtime.motion import calculate_duration, DEFAULT_SPEED
 from model.piece import token_type, token_color
+from model.piece import token_type, token_color   # token_type כבר בשימוש; ודא ששניהם מיובאים
 
 class GameEngine:
 
@@ -43,5 +44,7 @@ class GameEngine:
         self.arbiter.start_motion(from_pos, to_pos, token, completion_time)
 
     def advance_time(self, ms):
-        self.arbiter.advance_time(ms)
-
+        settled = self.arbiter.advance_time(ms)   # CHANGED: כעת משתמשים בערך המוחזר
+        for move in settled:
+            if token_type(move["captured_token"]) == "K":   # ADDED: בדיקת לכידת מלך
+                self.is_over = True

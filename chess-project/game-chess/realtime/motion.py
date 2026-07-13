@@ -1,6 +1,6 @@
 import math
 
-DEFAULT_SPEED = 200  # ms per square (euclidean distance)
+DEFAULT_SPEED = 1000  # ms per square (euclidean distance)
 
 
 def calculate_duration(from_pos, to_pos, speed=DEFAULT_SPEED):

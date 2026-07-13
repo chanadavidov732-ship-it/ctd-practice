@@ -56,7 +56,7 @@ def test_capture_enemy_piece():
 
     assert board.get_piece((3, 7)) == "wR"
 
-    
+
 def test_locked_piece_click_is_ignored():
     board, state, engine, controller = make_setup([ROW] * 7 + ["wR . . . . . . ."])
 
@@ -108,3 +108,20 @@ def test_piece_can_move_again_immediately_after_arrival_no_cooldown():
     controller.handle_click(650, 750)  # move to (6,7)
 
     assert (3, 7) in state.locked  # הכלי שוב בתנועה, המהלך השני התקבל
+
+
+def test_second_piece_cannot_move_while_another_is_in_motion():
+    rows = ["wR . .", ". . .", "bR . ."]
+    board, state, engine, controller = make_setup(rows)
+
+    controller.handle_click(50, 50)    # select wR at (0,0)
+    controller.handle_click(250, 50)   # move wR to (2,0), 2000ms, locked={(0,0)}
+
+    controller.handle_click(50, 250)   # select bR at (0,2)
+    controller.handle_click(250, 250)  # attempt move bR to (2,2) - rejected, global lock active
+
+    engine.advance_time(2000)
+
+    assert board.get_piece((2, 0)) == "wR"   # wR arrived
+    assert board.get_piece((0, 2)) == "bR"   # bR never moved
+    assert board.get_piece((2, 2)) == "."

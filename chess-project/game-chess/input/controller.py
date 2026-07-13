@@ -37,3 +37,9 @@ class Controller:
         from_pos = self.selected["pos"]
         self.selected = None
         self.game_engine.request_move(from_pos, pos)
+
+    def handle_jump(self, x, y):                                # ADDED
+        pos = self.board_mapper.pixel_to_cell(x, y)
+        if pos is None:
+            return
+        self.game_engine.request_jump(pos)

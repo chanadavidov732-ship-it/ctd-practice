@@ -143,3 +143,17 @@ def test_pawn_promotes_to_queen_on_last_row():
     engine.advance_time(1000)          # 1 square * 1000ms
 
     assert board.get_piece((0, 0)) == "wQ"   # promoted to queen
+
+
+def test_jump_captures_arriving_enemy_and_stays_in_place():
+    rows = [ROW] * 5 + ["bR . . . . . . .", ". . . . . . . .", "wR . . . . . . ."]
+    board, state, engine, controller = make_setup(rows)
+
+    controller.handle_jump(50, 550)    # select bR at (0,5), jump - airborne for 1000ms
+    controller.handle_click(50, 750)   # select wR at (0,7)
+    controller.handle_click(50, 550)   # move wR two squares up to (0,5), duration=2000ms
+
+    engine.advance_time(2000)          # wR arrives while bR still airborne (1000ms jump < 2000ms move)
+
+    assert board.get_piece((0, 5)) == "bR"   # airborne piece stayed, captured the arriver
+    assert board.get_piece((0, 7)) == "."    # arriving piece removed from origin

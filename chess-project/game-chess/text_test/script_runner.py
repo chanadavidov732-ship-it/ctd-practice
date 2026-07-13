@@ -23,3 +23,6 @@ def run_commands(controller, game_engine, board):
             game_engine.advance_time(ms)
         elif command[0] == "print_board":
             print_board(board)
+        elif command[0] == "jump":                              # ADDED
+            _, x, y = command
+            controller.handle_jump(x, y)

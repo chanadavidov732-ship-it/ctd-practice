@@ -13,5 +13,8 @@ def parse_command(line):
 
     if line == "print board":
         return ("print_board",)
+    
+    if cmd == "jump" and len(parts) == 3:                       # ADDED
+        return ("jump", int(parts[1]), int(parts[2]))
 
     return None

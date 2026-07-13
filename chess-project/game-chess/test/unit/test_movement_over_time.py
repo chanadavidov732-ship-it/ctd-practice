@@ -24,10 +24,10 @@ ROW = ". . . . . . . ."
 def test_piece_stays_in_place_before_arrival(capsys):
     board, engine, controller = make_setup([ROW] * 7 + ["wR . . . . . . ."])
 
-    controller.handle_click(50, 750)   # select rook at (0,7)
-    controller.handle_click(350, 750)  # move to (3,7), duration = 600ms
+    controller.handle_click(50, 750)
+    controller.handle_click(350, 750)
 
-    engine.advance_time(500)           # ADDED: לפני ההגעה (500 < 600)
+    engine.advance_time(500)           # 500 < 3000 - עדיין לא הגיע, תקין כפי שהוא
     print_board(board)
     captured = capsys.readouterr()
 
@@ -41,7 +41,7 @@ def test_piece_arrives_after_enough_wait(capsys):
     controller.handle_click(50, 750)
     controller.handle_click(350, 750)
 
-    engine.advance_time(600)           # ADDED: בדיוק זמן ההגעה
+    engine.advance_time(3000)          # ← שונה מ-600, בדיוק זמן ההגעה עם speed=1000
     print_board(board)
     captured = capsys.readouterr()
 

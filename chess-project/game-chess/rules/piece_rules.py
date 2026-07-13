@@ -56,11 +56,9 @@ SLIDING_PIECES = {"Q", "R", "B"}
 def is_sliding_piece(piece_type):
     return piece_type in SLIDING_PIECES
 
-
-def pawn_start_row(color, board_height):                        # CHANGED: was PAWN_START_ROW dict
-    """שורת המוצא של רגלי - הקצה שממנו הוא מתחיל, יחסית לגובה הלוח."""
-    return board_height - 1 if color == "w" else 0
-
+def pawn_start_row(color, board_height):
+    """שורת המוצא של רגלי - שורה אחת לפנים מהקצה של אותו צבע."""
+    return board_height - 2 if color == "w" else 1   # CHANGED: was board_height - 1 / 0
 
 def _pawn_forward_direction(color):
     return -1 if color == "w" else 1

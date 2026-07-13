@@ -56,20 +56,19 @@ def test_pawn_two_cells_move_illegal_not_from_start():
     board = make_board(grid)
     assert rule_engine.check_move(board, "P", "w", (0, 2), (0, 0)) == rule_engine.ILLEGAL_SHAPE
     
-# CHANGED: from_row=3 -> from_row=6 (שורת המוצא האמיתית של רגלי לבן)
 def test_pawn_two_cell_move_with_clear_path_is_ok():
-    rows = [". . ."] * 6 + ["wP . ."]
+    rows = [". . ."] * 5 + ["wP . .", ". . ."]   # CHANGED: wP at row5 (start row for height=7)
     board = make_board(rows)
-    assert rule_engine.check_move(board, "P", "w", (0, 6), (0, 4)) == rule_engine.OK
+    assert rule_engine.check_move(board, "P", "w", (0, 5), (0, 3)) == rule_engine.OK
 
 
 def test_pawn_two_cell_move_blocked_mid_path():
-    rows = [". . ."] * 5 + ["bN . .", "wP . ."]   # CHANGED: 7 rows, wP at edge (row6)
+    rows = [". . ."] * 4 + ["bN . .", "wP . .", ". . ."]   # CHANGED: wP at row5, blocker at row4
     board = make_board(rows)
-    assert rule_engine.check_move(board, "P", "w", (0, 6), (0, 4)) == rule_engine.BLOCKED
+    assert rule_engine.check_move(board, "P", "w", (0, 5), (0, 3)) == rule_engine.BLOCKED
 
 
 def test_pawn_two_cell_move_clear_path_from_correct_start_row():
-    rows = [". . ."] * 6 + ["wP . ."]
+    rows = [". . ."] * 5 + ["wP . .", ". . ."]   # CHANGED: same as first test
     board = make_board(rows)
-    assert rule_engine.check_move(board, "P", "w", (0, 6), (0, 4)) == rule_engine.OK
+    assert rule_engine.check_move(board, "P", "w", (0, 5), (0, 3)) == rule_engine.OK

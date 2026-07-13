@@ -52,11 +52,9 @@ def test_white_pawn_moves_upward():
 def test_black_pawn_moves_downward():
     assert is_legal_pawn_move(0, 1, "b", 3, 8) is True
 
-
 def test_pawn_two_cells_only_from_start_row():
-    assert is_legal_pawn_move(0, -2, "w", 7, 8) is True   # start row = height-1
-    assert is_legal_pawn_move(0, -2, "w", 6, 8) is False
-
+    assert is_legal_pawn_move(0, -2, "w", 6, 8) is True    # height-2 = 6 for 8-row board
+    assert is_legal_pawn_move(0, -2, "w", 5, 8) is False
 
 def test_pawn_cannot_move_two_cells_diagonally():
     assert is_legal_pawn_move(1, -2, "w", 7, 8) is False

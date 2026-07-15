@@ -194,6 +194,20 @@ def test_resting_piece_does_not_block_other_pieces_on_board():
     assert board.get_piece((1, 2)) == "bR"   
     assert board.get_piece((1, 0)) == "wR"    
 
+def test_resting_piece_cannot_jump():
+    board, state, engine, controller = make_setup([ROW] * 7 + ["wR . . . . . . ."])
+
+    controller.handle_click(50, 750)
+    controller.handle_click(350, 750)
+    engine.advance_time(3000)
+
+    assert (3, 7) in state.resting
+
+    controller.handle_jump(350, 750)
+
+    assert (3, 7) not in state.airborne
+
+
 def test_piece_lands_normally_if_no_enemy_arrives():
     rows = [ROW] * 7 + ["wR . . . . . . ."]
     board, state, engine, controller = make_setup(rows)

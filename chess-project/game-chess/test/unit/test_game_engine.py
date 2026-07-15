@@ -91,21 +91,6 @@ def test_piece_cannot_be_redirected_while_moving():
     assert board.get_piece((5, 7)) == "."
 
 
-def test_piece_can_move_again_immediately_after_arrival_no_cooldown():
-    board, state, engine, controller = make_setup([ROW] * 7 + ["wR . . . . . . ."])
-
-    controller.handle_click(50, 750)
-    controller.handle_click(350, 750)
-    engine.advance_time(3000)
-
-    assert board.get_piece((3, 7)) == "wR"
-
-    controller.handle_click(350, 750)
-    controller.handle_click(650, 750)
-
-    assert (3, 7) in state.locked
-
-
 def test_second_piece_cannot_move_while_another_is_in_motion():
     rows = ["wR . .", ". . .", "bR . ."]
     board, state, engine, controller = make_setup(rows)
@@ -152,3 +137,74 @@ def test_jump_captures_arriving_enemy_and_stays_in_place():
 
     assert board.get_piece((0, 5)) == "bR"
     assert board.get_piece((0, 7)) == "."
+
+
+from realtime.motion import LONG_REST_MS, SHORT_REST_MS
+
+
+def test_piece_cannot_move_immediately_after_arrival_due_to_resting():
+    board, state, engine, controller = make_setup([ROW] * 7 + ["wR . . . . . . ."])
+
+    controller.handle_click(50, 750)   
+    controller.handle_click(350, 750)  
+    engine.advance_time(3000)         
+
+    assert board.get_piece((3, 7)) == "wR"
+    assert (3, 7) in state.resting
+    assert (3, 7) not in state.locked   
+
+    controller.handle_click(350, 750)
+    controller.handle_click(650, 750)
+
+    assert board.get_piece((3, 7)) == "wR"   
+    assert board.get_piece((6, 7)) == "."
+
+
+def test_piece_can_move_again_after_rest_completes():
+    board, state, engine, controller = make_setup([ROW] * 7 + ["wR . . . . . . ."])
+
+    controller.handle_click(50, 750)
+    controller.handle_click(350, 750)
+    engine.advance_time(3000)
+    engine.advance_time(LONG_REST_MS)
+    assert (3, 7) not in state.resting
+
+    controller.handle_click(350, 750)
+    controller.handle_click(650, 750)
+
+    assert (3, 7) in state.locked  
+
+
+def test_resting_piece_does_not_block_other_pieces_on_board():
+    rows = ["wR . .", ". . .", "bR . ."]
+    board, state, engine, controller = make_setup(rows)
+
+    controller.handle_click(50, 50)    
+    controller.handle_click(150, 50)  
+    engine.advance_time(1000)         
+
+    assert (1, 0) in state.resting
+    assert (1, 0) not in state.locked        
+
+
+    controller.handle_click(50, 250)   
+    controller.handle_click(150, 250) 
+    engine.advance_time(1000)
+
+    assert board.get_piece((1, 2)) == "bR"   
+    assert board.get_piece((1, 0)) == "wR"    
+
+def test_piece_lands_normally_if_no_enemy_arrives():
+    rows = [ROW] * 7 + ["wR . . . . . . ."]
+    board, state, engine, controller = make_setup(rows)
+
+    controller.handle_jump(50, 750)
+    assert (0, 7) in state.airborne
+
+    engine.advance_time(1000)
+    assert (0, 7) not in state.airborne
+    assert (0, 7) in state.resting         
+    assert board.get_piece((0, 7)) == "wR"
+
+    engine.advance_time(SHORT_REST_MS)    
+    assert (0, 7) not in state.resting    

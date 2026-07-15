@@ -36,13 +36,14 @@ def test_moves_after_game_over_are_ignored():
     rows = [ROW] * 6 + ["wN . . . . . . .", "wR . . bK . . . ."]
     board, state, engine, controller = make_setup(rows)
 
-    controller.handle_click(50, 750)  
-    controller.handle_click(350, 750) 
+    controller.handle_click(50, 750)
+    controller.handle_click(350, 750)
+    engine.advance_time(3000)
 
     assert engine.is_over is True
 
-    controller.handle_click(50, 650)  
-    controller.handle_click(250, 650) 
+    controller.handle_click(50, 650)
+    controller.handle_click(250, 650)
 
     engine.advance_time(3000)
 

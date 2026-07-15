@@ -4,4 +4,4 @@ class GameState:
         self.pending_moves = []  
         self.locked = set()      
         self.airborne = {}  
-        
+        self.resting = {}   

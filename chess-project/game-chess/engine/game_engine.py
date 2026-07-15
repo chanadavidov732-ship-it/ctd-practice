@@ -11,7 +11,7 @@ class GameEngine:
         self.is_over = False
 
     def is_locked(self, pos):
-        return pos in self.game_state.locked
+        return pos in self.game_state.locked or pos in self.game_state.resting  
     
     def request_move(self, from_pos, to_pos):
         # 1. האם המשחק נגמר?

@@ -63,9 +63,11 @@ game-chess/                    # note the hyphen — not "game_chess"
 │   ├── piece_registry.py        # PIECE_TYPES, COLORS - single source of truth for which pieces exist
 │   └── rule_engine.py           # check_move() - the central legality-check function
 ├── realtime/
-│   ├── motion.py                # calculate_duration() - Chebyshev distance, DEFAULT_SPEED, JUMP_DURATION_MS
+│   ├── motion.py                # calculate_duration() - Chebyshev distance, DEFAULT_SPEED, JUMP_DURATION_MS,
+│   │                             # LONG_REST_MS, SHORT_REST_MS
 │   └── realtime_arbiter.py      # RealTimeArbiter: start_motion, start_jump, advance_time,
-│                                 # _settle_due_moves (Atomic Update + air capture), _land_due_jumps
+│                                 # _settle_due_moves (Atomic Update + air capture), _land_due_jumps,
+│                                 # _release_due_rests
 ├── engine/
 │   └── game_engine.py           # GameEngine: request_move, request_jump, advance_time, is_over, is_locked
 ├── input/
@@ -145,7 +147,7 @@ Each state's `config.json` looks like:
 ### Model
 - **`Position`**: `namedtuple("Position", ["col","row"])` — in practice most of the code still uses raw `(col, row)` tuples, not always the formal `Position`.
 - **`Board`**: wraps `grid` (list of lists of strings), exposes `get_piece`, `set_piece`, `is_inside`, `height`, `width`.
-- **`GameState`**: `clock` (int, ms), `pending_moves` (list of dict: from/to/token/completion_time), `locked` (set of positions), `airborne` (dict: pos → completion_time).
+- **`GameState`**: `clock` (int, ms), `pending_moves` (list of dict: from/to/token/completion_time), `locked` (set of positions), `airborne` (dict: pos → completion_time), `resting` (dict: pos → completion_time; new cooldown mechanic — see Realtime section below and section 7).
 - **`piece.py`**: `token_color(token)`, `token_type(token)` — parses the `"wR"`/`"bK"`/`"."` format.
 
 ### Rules
@@ -159,16 +161,17 @@ Each state's `config.json` looks like:
 - **`rule_engine.py`**: `check_move(board, piece_type, piece_color, from_pos, to_pos)` returns only a result code — `OK`/`OUT_OF_BOUNDS`/`ILLEGAL_SHAPE`/`BLOCKED`/`FRIENDLY_FIRE`. **Does not** mutate the board. Has a dedicated path for pawns (`_check_pawn_move`) that also checks path-blocking for the double move.
 
 ### Realtime
-- **`motion.py`**: `calculate_duration(from_pos, to_pos, speed=DEFAULT_SPEED)` — **Chebyshev distance** (`max(|dx|,|dy|)`), **not** Euclidean! `DEFAULT_SPEED = 1000` (ms per square). `JUMP_DURATION_MS = 1000`.
+- **`motion.py`**: `calculate_duration(from_pos, to_pos, speed=DEFAULT_SPEED)` — **Chebyshev distance** (`max(|dx|,|dy|)`), **not** Euclidean! `DEFAULT_SPEED = 1000` (ms per square). `JUMP_DURATION_MS = 1000`. **New**: `LONG_REST_MS = 1000` (cooldown after a regular move settles) and `SHORT_REST_MS = 500` (cooldown after a jump lands safely) — see below.
 - **`realtime_arbiter.py`**: `RealTimeArbiter` holds references to `board` and `game_state`.
   - `start_motion(from_pos, to_pos, token, completion_time)` — registers a move in `pending_moves`, adds to `locked`.
   - `start_jump(pos)` — registers `airborne[pos] = clock + JUMP_DURATION_MS`.
-  - `advance_time(ms)` — advances `clock`, calls `_settle_due_moves()` then `_land_due_jumps()` (in that order!).
-  - `_settle_due_moves()` — **the most important function in the project**. For each move whose time has come: first checks for **air capture** (if the destination is in `airborne`, the arriving enemy is captured and the jumping piece stays put), otherwise performs the regular Atomic Update (including pawn promotion check). Returns the list of settled moves, each including `captured_token`.
-  - `_land_due_jumps()` — clears pieces that finished jumping without being captured (they simply remain where they were).
+  - `advance_time(ms)` — advances `clock`, calls `_settle_due_moves()`, then `_land_due_jumps()`, then `_release_due_rests()` (in that order!).
+  - `_settle_due_moves()` — **the most important function in the project**. For each move whose time has come: first checks for **air capture** (if the destination is in `airborne`, the arriving enemy is captured and the jumping piece stays put), otherwise performs the regular Atomic Update (including pawn promotion check) **and now also** sets `resting[move["to"]] = clock + LONG_REST_MS` — the landing square enters a cooldown before it can be selected/moved again. Returns the list of settled moves, each including `captured_token`.
+  - `_land_due_jumps()` — clears pieces that finished jumping without being captured; **now also** sets `resting[pos] = clock + SHORT_REST_MS` for a piece that lands safely (jump cooldown is shorter than a regular-move cooldown).
+  - `_release_due_rests()` — **new**. Clears `resting` entries whose completion time has passed, mirroring `_land_due_jumps`'s pattern for `airborne`.
 
 ### Engine
-- **`GameEngine`**: `request_move(from_pos, to_pos)` checks in order: `is_over?` → `game_state.locked` **not empty** (a **global** lock! see section 7) → `rule_engine.check_move()` → if `OK`, triggers `arbiter.start_motion`. `request_jump(pos)` checks: `is_over?` → piece not `locked` → piece not already `airborne` → a piece exists on the cell → triggers `arbiter.start_jump`. `advance_time(ms)` calls `arbiter.advance_time`, and for each settled move checks if `captured_token` is a king (`token_type == "K"`) → if so, `is_over = True`. `is_locked(pos)` — a query used by the Controller.
+- **`GameEngine`**: `request_move(from_pos, to_pos)` checks in order: `is_over?` → `game_state.locked` **not empty** (a **global** lock! see section 7) → `rule_engine.check_move()` → if `OK`, triggers `arbiter.start_motion`. `request_jump(pos)` checks: `is_over?` → piece not `locked` → piece not already `airborne` → a piece exists on the cell → triggers `arbiter.start_jump`. `advance_time(ms)` calls `arbiter.advance_time`, and for each settled move checks if `captured_token` is a king (`token_type == "K"`) → if so, `is_over = True`. `is_locked(pos)` — a query used by the Controller; **now returns `True` if `pos` is in `locked` OR in `resting`**, so a piece that just arrived (or just landed a jump) reads as unavailable during its cooldown even though it's not in `game_state.locked`.
 
 ### Input
 - **`BoardMapper`**: `pixel_to_cell(x,y)` based on `square_size=100`, returns `None` if outside the board.
@@ -192,12 +195,13 @@ Each state's `config.json` looks like:
 3. `GameEngine` checks `is_over`, checks `game_state.locked` (**global**, not just for this piece), calls `rule_engine.check_move`.
 4. If `OK` → `arbiter.start_motion` → registered in `pending_moves`, `locked.add(from_pos)`.
 5. **The logical board has NOT changed yet!** — only when a sufficient `wait ms` arrives, `advance_time` advances `clock`, and `_settle_due_moves` performs the actual Atomic Update (including checking promotion / air capture / king capture).
-6. `print board` at any point prints the current actual state of `board.grid` (not including "in-flight" moves).
+6. **New**: the moment a regular move settles, the destination cell also enters a **rest/cooldown** (`resting[to] = clock + LONG_REST_MS`) — during this window `GameEngine.is_locked(to)` returns `True`, so the piece cannot be selected or moved again even though `game_state.locked` no longer contains it. The cooldown clears itself the next time `advance_time` runs past its completion time (`_release_due_rests`).
+7. `print board` at any point prints the current actual state of `board.grid` (not including "in-flight" moves).
 
 **Jump:**
 1. `jump x y` → `Controller.handle_jump` → `GameEngine.request_jump(pos)` → if valid → `arbiter.start_jump(pos)` → `airborne[pos] = clock + 1000`.
 2. If, while the piece is "airborne," an enemy move arrives whose destination is that cell — in `_settle_due_moves`, `move["to"] in airborne` is checked **before** the regular Atomic Update → if true, the arriving enemy is removed from its origin, the jumping piece stays put.
-3. If no enemy arrived by the end of the jump — `_land_due_jumps` simply removes the entry from `airborne`; the board doesn't change (the piece was logically there the whole time).
+3. If no enemy arrived by the end of the jump — `_land_due_jumps` simply removes the entry from `airborne`; the board doesn't change (the piece was logically there the whole time). **New**: landing safely also starts a (shorter) rest — `resting[pos] = clock + SHORT_REST_MS`.
 
 ---
 
@@ -214,6 +218,7 @@ Each state's `config.json` looks like:
 9. **Air capture takes priority over regular settlement**: in `_settle_due_moves`, if `move["to"]` is in `airborne`, a special capture occurs (the attacking piece is removed, the jumping piece stays) **before** the regular Atomic Update check. This ordering is **critical** and was deliberate — see the design note below.
 10. **Jumping is NOT checked against the global lock (`locked`)** — a piece can jump even while another piece is moving elsewhere, because `request_jump` only checks whether *that specific piece* is locked/already-airborne, not the global state. **This decision was not finally confirmed** — it needs to be verified whether jumping should also be blocked by the global lock.
 11. **Pawns are always handled via a separate path** in `rule_engine.check_move` (`if piece_type=="P": return _check_pawn_move(...)`) rather than through the generic `MOVEMENT_VALIDATORS` — because they have asymmetric rules (color-dependence, move≠capture) that don't fit the simple dx/dy model used by the other pieces.
+12. **New — Rest/cooldown after arrival, replacing the earlier "no cooldown" rule**: a previous iteration explicitly established (and tested, via a now-deleted test named `test_piece_can_move_again_immediately_after_arrival_no_cooldown`) that a piece could be redirected the instant it arrived. That has been **reversed**: `GameState.resting` (dict: pos → completion_time) now tracks a post-arrival cooldown, checked by `GameEngine.is_locked`. Two different durations apply: `LONG_REST_MS = 1000` after a regular move settles (`_settle_due_moves`), and the shorter `SHORT_REST_MS = 500` after a jump lands safely (`_land_due_jumps`). Resting is per-position, not global — it does not block other pieces elsewhere on the board (unlike the global `locked` set, decision #4).
 
 ---
 
@@ -232,8 +237,9 @@ Based on the 11 iterations done so far:
 9. ✅ Global lock — only one move active on the whole board at a time (section 7.4).
 10. ✅ Advanced integration tests: enemy collision, invalid premoves, landing on a friendly piece, conflicts.
 11. ✅ Jump mechanic and air capture — including full wiring in `Controller`, `script_parser`, `script_runner`.
+12. ✅ Rest/cooldown after arrival (`GameState.resting`, section 7 #12) — a regular move's destination and a safely-landed jump's cell are now unavailable for a further beat (`LONG_REST_MS`/`SHORT_REST_MS`) via `GameEngine.is_locked`.
 
-Current test coverage: ~61 unit tests passing (`pytest`), spread across all layers (except `view/`).
+Current test coverage: 64 unit tests passing (`pytest`), spread across all layers (except `view/`).
 
 ---
 

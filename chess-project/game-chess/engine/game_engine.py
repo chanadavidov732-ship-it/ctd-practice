@@ -18,12 +18,8 @@ class GameEngine:
         if self.is_over:
             return
 
-        # 2. האם קיימת כבר תנועה פעילה כלשהי על הלוח? (משאב "route" משותף)
-        if self.game_state.locked:
-            return
-
-        # 2. האם יש כבר תנועה פעילה על הכלי הזה?
-        if from_pos in self.game_state.locked:
+        # 2. האם יש כבר תנועה פעילה (או השהיה) על הכלי הזה?
+        if self.is_locked(from_pos):
             return
 
         # 3. האם ה-Rule Engine מאשר?
@@ -49,7 +45,7 @@ class GameEngine:
     def request_jump(self, pos):
         if self.is_over:
             return
-        if pos in self.game_state.locked:                 
+        if self.is_locked(pos):
             return
         if pos in self.game_state.airborne:               
             return

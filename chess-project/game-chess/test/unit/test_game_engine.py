@@ -91,7 +91,7 @@ def test_piece_cannot_be_redirected_while_moving():
     assert board.get_piece((5, 7)) == "."
 
 
-def test_second_piece_cannot_move_while_another_is_in_motion():
+def test_second_piece_can_move_while_another_is_in_motion():
     rows = ["wR . .", ". . .", "bR . ."]
     board, state, engine, controller = make_setup(rows)
 
@@ -104,8 +104,8 @@ def test_second_piece_cannot_move_while_another_is_in_motion():
     engine.advance_time(2000)
 
     assert board.get_piece((2, 0)) == "wR"
-    assert board.get_piece((0, 2)) == "bR"
-    assert board.get_piece((2, 2)) == "."
+    assert board.get_piece((2, 2)) == "bR"
+    assert board.get_piece((0, 2)) == "."
 
 def test_pawn_promotes_to_queen_on_last_row():
     rows = ["wP . . . . . . ."] + [ROW] * 7

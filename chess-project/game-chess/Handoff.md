@@ -47,7 +47,7 @@ The project follows strict separation of concerns, inspired by Clean Architectur
 
 ## 4. Project Structure
 
-The repo root contains two sibling folders: `game-chess/` (all the code below) and `graphics/` (sprite/animation assets for the future graphical UI — see section 4a). The root also has a `Handoff · MD.docx` (an exported mirror of this same document — keep this `.md` file as the source of truth and treat the `.docx` as stale) and a leftover `__pycache__/game.cpython-*.pyc` inside `game-chess/` — a compiled trace of a pre-refactor `game.py`/`test_game.py` pair with no source files left; harmless, safe to ignore or delete.
+The repo root previously also had a sibling `graphics/` folder (sprite/animation assets for the future graphical UI); it has since been **removed** — its contents now live inside `game-chess/ui/` (see section 4a). The root also has a `Handoff · MD.docx` (an exported mirror of this same document — keep this `.md` file as the source of truth and treat the `.docx` as stale) and a leftover `__pycache__/game.cpython-*.pyc` inside `game-chess/` — a compiled trace of a pre-refactor `game.py`/`test_game.py` pair with no source files left; harmless, safe to ignore or delete.
 
 ```
 game-chess/                    # note the hyphen — not "game_chess"
@@ -79,6 +79,11 @@ game-chess/                    # note the hyphen — not "game_chess"
 ├── text_test/
 │   ├── script_parser.py         # parse_command() - click/jump/wait/print board
 │   └── script_runner.py         # run_commands() - runs a script from stdin
+├── ui/                          # moved/renamed from the old root-level graphics/ folder - see section 4a
+│   ├── img.py                    # Img: OpenCV (cv2) + numpy helper - read/resize, draw_on (alpha-blend), put_text, show
+│   ├── renderer.py               # currently an empty stub - not yet implemented
+│   ├── sprite_manager.py         # currently an empty stub - not yet implemented
+│   └── game_snapshot/            # sprite/animation assets (moved from graphics/, see section 4a for what changed)
 └── test/
     └── unit/
         ├── test_board.py
@@ -96,31 +101,32 @@ game-chess/                    # note the hyphen — not "game_chess"
 
 **Correction vs. earlier drafts of this document**: `view/`, `integration/`, and `scripts/` do **not exist yet at all** — not even as empty stub folders. Anyone starting the graphical-UI iteration needs to create `game-chess/view/` from scratch.
 
-### 4a. `graphics/` — sprite/animation assets (new, not yet wired to any code)
+### 4a. `game-chess/ui/` — sprite/animation assets + early renderer code (moved in from the old root-level `graphics/`, still not wired to the game logic)
 
-Added in the most recent commit (`add graphics folder`), sitting as a **sibling** of `game-chess/`, not inside it:
+The root-level `graphics/` sibling folder described in earlier drafts of this document is **gone** — it was moved inside `game-chess/` and renamed to `ui/`. Along with the move, the asset set was trimmed and code stubs were added:
 
 ```
-graphics/
-├── board.png                    # board background image
-├── pieces1/                     # first piece-skin set
-│   └── <TC>/                    # e.g. QW, KB, PB... (type+color code, opposite order from board tokens)
-│       └── states/
-│           ├── idle/
-│           │   ├── config.json  # {"physics": {...}, "graphics": {"frames_per_sec", "is_loop"}}
-│           │   └── sprites/1.png..5.png
-│           ├── move/
-│           ├── jump/
-│           ├── short_rest/
-│           └── long_rest/
-├── pieces2/                     # second piece-skin set (identical structure)
-└── py/
-    ├── img.py                   # Img: OpenCV (cv2) helper — read/resize, draw_on (alpha-blend), put_text, show
-    ├── example.py                # demo: loads board.png + a piece sprite, draws it, shows the canvas
-    └── requirements.txt          # opencv-python
+game-chess/ui/
+├── img.py                       # Img: OpenCV (cv2) + numpy helper — read/resize, draw_on (alpha-blend), put_text, show
+│                                 # (evolved from the old graphics/py/img.py demo; now also imports numpy)
+├── renderer.py                  # currently an EMPTY file — not yet implemented
+├── sprite_manager.py            # currently an EMPTY file — not yet implemented
+└── game_snapshot/                # sprite/animation assets (moved from graphics/)
+    ├── board.png                 # board background image
+    └── pieces_mine/               # the only piece-skin set kept — the old graphics/pieces2/ set was dropped
+        └── <color><type>/         # e.g. wK, bQ... now color+type order, matching board tokens ("wR"),
+            │                      # unlike the old graphics/pieces1/<type><color>/ (e.g. QW, KB) — order was flipped
+            └── states/
+                ├── idle/
+                │   ├── config.json   # {"physics": {...}, "graphics": {"frames_per_sec", "is_loop"}}
+                │   └── sprites/1.png..5.png
+                ├── move/
+                ├── jump/
+                ├── short_rest/
+                └── long_rest/
 ```
 
-Each state's `config.json` looks like:
+Each state's `config.json` still looks like:
 ```json
 {
   "physics": {"speed_m_per_sec": 1.5, "next_state_when_finished": "long_rest"},
@@ -128,11 +134,14 @@ Each state's `config.json` looks like:
 }
 ```
 
-**Why this matters for whoever picks up the graphical-UI work:**
-- This introduces a **per-piece animation state machine** (`idle → move/jump → short_rest/long_rest → idle`, chained via `next_state_when_finished`) that **does not exist anywhere in the current code**. `GameState`/`RealTimeArbiter` only track `locked`/`airborne`/`pending_moves` — there is no concept of "which visual state is this piece in" yet. That will need new state in the Model or a new layer, without leaking visuals into `RealTimeArbiter`/`GameEngine` (see section 2/11).
-- `speed_m_per_sec` is a **different unit and a different number** than `DEFAULT_SPEED` (ms/square) in `realtime/motion.py` — reconcile deliberately, don't assume they're meant to be the same value.
-- The demo code (`graphics/py/example.py`, `img.py`) uses **OpenCV (`cv2`)**, which is a new dependency not yet in the project (currently stdlib-only, see section 3). It is a throwaway example, not integrated — treat it as a spike, not a library to import as-is.
-- Nothing in `game-chess/` currently reads from `graphics/` — nothing is wired up. This is asset/spike prep for the still-missing `view/renderer.py` + `view/image_view.py` (section 9), not a completed step.
+**What's changed vs. the old `graphics/` folder, and why it still matters for whoever picks up the graphical-UI work:**
+- The assets now live **inside** `game-chess/` (under `ui/game_snapshot/`) instead of as a root sibling — no more crossing the package boundary to reach them.
+- Only one piece-skin set remains (`pieces_mine/`, the old `pieces1/`); the old `pieces2/` set was removed. The per-piece folder naming was also flipped from `<type><color>` (e.g. `QW`) to `<color><type>` (e.g. `wQ`), now matching the board token format used everywhere else (section 12) — don't assume the old naming from earlier drafts of this doc.
+- `renderer.py` and `sprite_manager.py` exist as **empty placeholder files** — the module layout for the UI work has been staked out, but no logic has been written yet.
+- `img.py` is still the only real code here, carried over (and extended with `numpy`) from the old `graphics/py/img.py` spike. It's still OpenCV-based, and OpenCV/`cv2`/`numpy` are still not declared as project dependencies anywhere (see section 3).
+- Nothing in the rest of `game-chess/` reads from `ui/` yet — nothing is wired up. This is still asset/spike prep for the still-missing renderer wiring (section 9), not a completed step.
+- This still introduces a **per-piece animation state machine** (`idle → move/jump → short_rest/long_rest → idle`, chained via `next_state_when_finished`) that **does not exist anywhere in the current game logic**. `GameState`/`RealTimeArbiter` only track `locked`/`airborne`/`pending_moves` — there is no concept of "which visual state is this piece in" yet.
+- `speed_m_per_sec` is still a **different unit and a different number** than `DEFAULT_SPEED` (ms/square) in `realtime/motion.py` — reconcile deliberately, don't assume they're meant to be the same value.
 
 ### Files critical to understanding the architecture (read these first)
 1. **`engine/game_engine.py`** — the operational heart: shows the full decision sequence for every move/jump request.
@@ -246,7 +255,7 @@ Current test coverage: 64 unit tests passing (`pytest`), spread across all layer
 
 ## 9. What Is Still Missing
 
-- **Actual graphical UI** (`view/renderer.py`, `view/image_view.py`) — this is step 10 of the original 10 steps, and neither the `view/` folder nor any code for it exists yet. What **does** exist is a fresh, unwired asset library at `graphics/` (sprites, board image, an OpenCV spike) — see section 4a. Building `view/` means designing how those animation states (idle/move/jump/short_rest/long_rest) map onto the existing real-time model (`pending_moves`/`locked`/`airborne`), not starting from nothing.
+- **Actual graphical UI** (`view/renderer.py`, `view/image_view.py`) — this is step 10 of the original 10 steps, and neither the `view/` folder nor any code for it exists yet. What **does** exist is a fresh, unwired asset library plus empty renderer/sprite-manager stubs at `game-chess/ui/` (sprites, board image, an OpenCV `img.py` helper) — see section 4a. Building the renderer means designing how those animation states (idle/move/jump/short_rest/long_rest) map onto the existing real-time model (`pending_moves`/`locked`/`airborne`), not starting from nothing.
 - **`.kfc` script files** under `scripts/` — not actually written during the conversation (mentioned in the structure but not created); the folder itself doesn't exist either.
 - **`integration/`** — no folder, no comprehensive end-to-end integration tests exist (only unit tests exist, even if some are "lightly integration-style").
 - **En Passant** — not implemented (not required by any iteration so far).
@@ -259,10 +268,10 @@ Current test coverage: 64 unit tests passing (`pytest`), spread across all layer
 
 ## 10. TODO List (explicit and implied from the conversation)
 
-- [ ] Implement `view/renderer.py` + `view/image_view.py` with a graphical UI (step 10 of the spec), building on the sprite/animation assets already staged in `graphics/` (section 4a).
-- [ ] Decide how per-piece animation state (idle/move/jump/short_rest/long_rest, driven by `graphics/**/config.json`) is modeled — new Model state vs. a new layer — without letting `RealTimeArbiter`/`GameEngine` become visual-aware.
-- [ ] Reconcile `speed_m_per_sec` (in the `graphics/` configs) against `DEFAULT_SPEED`/`calculate_duration` (ms/square, Chebyshev) in `realtime/motion.py` — decide whether/how they map to each other.
-- [ ] Decide whether OpenCV (`cv2`, used by the `graphics/py/` spike) becomes an actual project dependency, or gets replaced.
+- [ ] Implement `renderer.py` + `sprite_manager.py` under `game-chess/ui/` (currently empty stubs) with a graphical UI (step 10 of the spec), building on the sprite/animation assets already staged in `ui/game_snapshot/` (section 4a).
+- [ ] Decide how per-piece animation state (idle/move/jump/short_rest/long_rest, driven by `ui/game_snapshot/**/config.json`) is modeled — new Model state vs. a new layer — without letting `RealTimeArbiter`/`GameEngine` become visual-aware.
+- [ ] Reconcile `speed_m_per_sec` (in the `ui/game_snapshot/` configs) against `DEFAULT_SPEED`/`calculate_duration` (ms/square, Chebyshev) in `realtime/motion.py` — decide whether/how they map to each other.
+- [ ] Decide whether OpenCV (`cv2`, used by `ui/img.py`) becomes an actual project dependency, or gets replaced.
 - [ ] Actually write `.kfc` files under `scripts/` (board_parsing, click_to_move, invalid_moves, capture, game_over).
 - [x] ~~Finally confirm against the grader/spec: is the "global lock — only one move on the board" rule permanent, or an interim stage that will later be replaced with full concurrency (per-piece lock only)?~~ **Resolved**: the global lock was removed (section 7 #4) — `request_move` now uses per-piece `is_locked` only, so any number of pieces can move concurrently; only lock/rest state on that specific square blocks a move.
 - [x] ~~Decide and document: should jumping (`request_jump`) also use `is_locked(pos)` (i.e. also respect `resting`, not just `locked`)?~~ **Resolved**: `request_jump` now uses `self.is_locked(pos)`, so a resting piece can no longer jump — see section 7 #10.

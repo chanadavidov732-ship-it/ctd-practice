@@ -48,11 +48,11 @@ Draws the entire screen. Never decides animation frames — that's `SpriteManage
 
 **Per-frame flow — `render(snapshot)`:**
 
-1. Load the board image, resized to `(board.width * square_size, board.height * square_size)` (`IMG.read`). **[UPDATED — implementation]** re-reading + resizing every frame, instead of caching a fixed-size board once, is what keeps the checkerboard pixels and the piece-position math in section "Centering" below in sync whenever `square_size` changes — see the note there.
-2. Loop over every piece in `snapshot["pieces"]`.
-3. Convert logical `(col, row)` → the pixel **center** of that cell (`_cell_center`), not its top-left corner — see "Centering pieces in their square" below.
+1. Load/draw empty board image (`IMG.read` + `IMG.drawOn`).
+2. Loop over every piece in `snapshot`.
+3. Convert logical `(row, col)` → pixel coordinates.
 4. Ask `SpriteManager` which sprite to draw for this piece.
-5. Draw the sprite on the board, offset from the cell center by the sprite's own rendered half-width/half-height (`IMG.draw_on`).
+5. Draw the sprite on the board (`IMG.drawOn`).
 6. Draw player name.
 7. Draw opponent name.
 8. Draw the two move-history tables, one on each side of the board.
@@ -60,21 +60,12 @@ Draws the entire screen. Never decides animation frames — that's `SpriteManage
 
 **Full responsibility list:**
 - Draw the chess board.
-- Draw every piece, always centered in its square regardless of `square_size` (see below). **[UPDATED — implementation]**
+- Draw every piece.
 - Draw player name / opponent name.
 - Draw both move-history tables.
 - Capture mouse clicks (OpenCV `cv2.setMouseCallback`, registered internally by the renderer).
 - Convert the raw pixel click into board coordinates via `BoardMapper`.
 - Expose the last click to the caller via `get_click()`.
-
-### Centering pieces in their square **[NEW — implementation, resolves the "keeps working if the board shrinks" requirement]**
-
-Two things have to be computed from `square_size` — not hardcoded — for a piece to stay centered in its cell at any board scale:
-
-1. **Cell center, not cell corner.** `Renderer._cell_center((col, row))` returns `(col*square_size + square_size//2, row*square_size + square_size//2)`.
-2. **Offset by the sprite's own actual size**, not by an assumed square: `x, y = cx - sprite_w//2, cy - sprite_h//2`, where `sprite_w, sprite_h` come from `sprite.img.shape`, not from `square_size`. `draw_on` draws from the top-left corner, so this offset is what turns a corner-anchored draw into a centered one.
-
-This alone isn't enough — the board *image* also has to be reloaded at `board.width*square_size × board.height*square_size` every frame (step 1 above), otherwise the checkerboard raster (a fixed-size PNG) stops lining up with the `square_size`-based math the moment `square_size` changes. Both the board image and `SpriteManager`'s sprite output (see section 4) scale off the same `square_size` value, which `app.py` sets once and passes to `BoardMapper`, `SpriteManager`, and `Renderer` — see section 6.
 
 ### Mouse click ownership **[RESOLVED — flow]**
 
@@ -98,8 +89,7 @@ mouse click (OpenCV callback, inside Renderer)
 A state machine for piece animation, nothing else:
 
 - Load sprite folders (`ui/game_snapshot/pieces_mine/<color><type>/states/...`).
-- Resize every loaded sprite frame to `(sprite_size, sprite_size)` (constructor param, default 100, `keep_aspect=True`). **[NEW — implementation]** the raw source PNGs are 320×320 — far larger than a 100px board square — so without this resize step pieces overflow past their cell (and past the board edge for pieces near row/col 7). `app.py` passes the same `square_size` value used by `BoardMapper`/`Renderer` here, so sprites and board squares always agree on scale (see section 6).
-- Cache loaded images, keyed by `(token, state)`; frames are loaded lazily on first use.
+- Cache loaded images.
 - Determine the current animation state for a piece.
 - Calculate the current animation frame (using `config.json`'s `frames_per_sec` / `is_loop`).
 - Return the correct image for the renderer to draw.
@@ -133,8 +123,6 @@ Unchanged. Renderer only calls its existing API:
 
 ## 6. `app.py` (entry point)
 
-**Target design** (unchanged) — once the engine loop is wired back in:
-
 ```
 engine = GameEngine(...)
 renderer = Renderer()
@@ -147,14 +135,6 @@ while True:
     if click:
         engine.handle_click(click)   # or request_move / request_jump, per existing engine API
 ```
-
-**Current implementation status [UPDATED — first UI milestone]:** `app.py` does not run the loop above yet. `GameState`/`RealTimeArbiter`/`GameEngine`/`Controller`/`board_parser`/`script_runner` imports and setup are commented out (not deleted — meant to be restored once the renderer is ready to drive real game state). Today `main()`:
-
-1. Builds the standard chess starting grid directly (pawns via `pawn_start_row`, back rank via a local `BACK_RANK_ORDER` list) — not read from `engine`/`io_options`.
-2. Defines **one `square_size` value** and passes it to `BoardMapper`, `SpriteManager(sprite_size=square_size)`, and `Renderer(square_size=square_size)`. This is the single place to change to resize the whole board — every pixel computation in `Renderer`/`SpriteManager` derives from it, so nothing else needs to change (see the centering note in section 3).
-3. Converts the grid into a flat `pieces` list of `{"token": "wK", "pos": (col, row)}` dicts and calls `renderer.render({"pieces": pieces})` **once** (no loop, no `get_click()` consumption yet).
-
-This `{"pieces": [...]}` shape is the **provisional snapshot contract** `Renderer.render()` currently reads (also expects optional `"player_name"`, `"opponent_name"`, `"player_moves"`, `"opponent_moves"` keys, all read via `.get(...)` with safe defaults). It has not been reconciled against a real `GameEngine.get_snapshot()` — see section 11.
 
 ---
 
@@ -207,8 +187,6 @@ Renderer.get_click() -> app.py -> GameEngine   (input path, separate from the re
 - `GameSnapshot` is a read-only data view for the UI — not a class the UI folder structure needs to avoid colliding with.
 - `img.py` is an existing utility library — not modified.
 - UI components stay modular so additional animations/overlays can be added later without touching game logic.
-- **[NEW]** `square_size` has exactly one source of truth (`app.py`), threaded into `BoardMapper`, `SpriteManager`, and `Renderer` — resizing the board is a one-line change, not a hunt through pixel math.
-- **[NEW]** A piece's on-screen position is derived from its cell's center plus the sprite's own rendered dimensions, never from a hardcoded/assumed size — this is what keeps pieces visually centered in their square at any `square_size` (see section 3).
 
 ---
 
@@ -216,10 +194,4 @@ Renderer.get_click() -> app.py -> GameEngine   (input path, separate from the re
 
 - Reconcile `speed_m_per_sec` (in `config.json` files) against `DEFAULT_SPEED`/Chebyshev distance in `realtime/motion.py`.
 - Decide whether `cv2`/`numpy` become declared project dependencies.
-- ~~Model per-piece animation state (idle/move/jump/short_rest/long_rest) without making `RealTimeArbiter`/`GameEngine` visual-aware~~ **[DONE]** — `SpriteManager.determine_state(is_airborne, is_moving, rest_remaining_ms)` implements exactly this, as plain parameters rather than a snapshot object with assumed field names (see below).
-- ~~Keep pieces visually correct (fit their square, stay centered) regardless of board/sprite size~~ **[DONE]** — see the centering note in section 3 and the resize note in section 4.
-
-**New open items from the first implementation pass:**
-- **The real `GameSnapshot`/pieces contract is still provisional.** `Renderer.render()` currently expects `{"pieces": [{"token": "wK", "pos": (col, row), "is_airborne": bool, "is_moving": bool, "rest_remaining_ms": int, "elapsed_ms": int}, ...], "player_name": ..., "opponent_name": ..., "player_moves": [...], "opponent_moves": [...]}`. None of this has been checked against what `GameEngine`/`RealTimeArbiter` can actually expose today (e.g. there is no `elapsed_ms`-since-state-change tracked anywhere in `GameState`/`RealTimeArbiter` yet) — expect this shape to change once section 6's real loop is wired back in.
-- **The `app.py` render loop + `get_click()` → `engine.request_move`/`request_jump` wiring from section 6's target design is not implemented.** `main()` currently does a single one-shot `render()` of a hardcoded standard starting position (pawns + back rank), with all `GameEngine`/`Controller`/`RealTimeArbiter`/`io_options` imports commented out rather than deleted.
-- `Renderer`'s move-history/name text placement uses fixed pixel offsets (e.g. `x=10`, `y=20`) rather than being derived from `square_size` — unlike piece centering, this has **not** been made scale-independent yet.
+- Model per-piece animation state (idle/move/jump/short_rest/long_rest) without making `RealTimeArbiter`/`GameEngine` visual-aware — this design keeps that mapping entirely inside `SpriteManager`, driven by data already available on the snapshot (position, `locked`/`resting`/`airborne` status, remaining rest ms).

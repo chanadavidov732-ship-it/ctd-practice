@@ -7,12 +7,13 @@ class RealTimeArbiter:
         self.board = board
         self.game_state = game_state
 
-    def start_motion(self, from_pos, to_pos, token, completion_time):
+    def start_motion(self, from_pos, to_pos, token, completion_time, duration):
         self.game_state.pending_moves.append({
             "from": from_pos,
             "to": to_pos,
             "token": token,
-            "completion_time": completion_time
+            "completion_time": completion_time,
+            "duration": duration
         })
         self.game_state.locked.add(from_pos)
 

@@ -34,7 +34,7 @@ class GameEngine:
         token = self.board.get_piece(from_pos)
         duration = calculate_duration(from_pos, to_pos, self.speed)
         completion_time = self.game_state.clock + duration
-        self.arbiter.start_motion(from_pos, to_pos, token, completion_time)
+        self.arbiter.start_motion(from_pos, to_pos, token, completion_time, duration)
 
     def advance_time(self, ms):
         settled = self.arbiter.advance_time(ms)

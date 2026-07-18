@@ -11,6 +11,9 @@ SELECTION_COLOR = (0, 255, 255)
 SELECTION_THICKNESS = 3
 FRAME_DELAY_MS = 30
 QUIT_KEYS = (27, ord("q"))
+GAME_OVER_TEXT = "GAME OVER"
+GAME_OVER_COLOR = (0, 0, 255, 255)
+GAME_OVER_FONT_SIZE = 2
 
 
 class Renderer:
@@ -43,6 +46,7 @@ class Renderer:
         board_img = Img().read(BOARD_IMAGE_PATH, size=(width, height))
         self._draw_pieces(board_img)
         self._draw_selection(board_img)
+        self._draw_game_over(board_img)
         cv2.imshow(WINDOW_NAME, board_img.img)
         return cv2.waitKey(FRAME_DELAY_MS)
 
@@ -78,6 +82,20 @@ class Renderer:
         x = from_x + (to_x - from_x) * progress
         y = from_y + (to_y - from_y) * progress
         return int(x), int(y)
+
+    def _draw_game_over(self, board_img):
+        if not self.game_engine.is_over:
+            return
+        width = self.board.width * self.square_size
+        height = self.board.height * self.square_size
+        board_img.put_text(
+            GAME_OVER_TEXT,
+            width // 2 - 130,
+            height // 2,
+            GAME_OVER_FONT_SIZE,
+            GAME_OVER_COLOR,
+            thickness=3,
+        )
 
     def _draw_selection(self, board_img):
         if self.controller.selected is None:

@@ -24,7 +24,8 @@ def main():
     board_mapper = BoardMapper(board)
     controller = Controller(board, board_mapper, game_engine)
 
-    renderer = Renderer(board, controller, game_engine)
+    move_history = []
+    renderer = Renderer(board, controller, game_engine, move_history)
 
     last_time = time.perf_counter()
     running = True
@@ -33,7 +34,8 @@ def main():
         elapsed_ms = (now - last_time) * 1000
         last_time = now
 
-        game_engine.advance_time(elapsed_ms)
+        settled = game_engine.advance_time(elapsed_ms)
+        move_history.extend(settled)
         running = renderer.render()
     
 

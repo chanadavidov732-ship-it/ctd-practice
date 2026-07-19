@@ -41,6 +41,7 @@ class GameEngine:
         for move in settled:
             if token_type(move["captured_token"]) == "K":
                 self.is_over = True
+        return settled
 
     def request_jump(self, pos):
         if self.is_over:

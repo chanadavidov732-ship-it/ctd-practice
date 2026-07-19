@@ -26,6 +26,7 @@ def main():
 
     move_history = []
     renderer = Renderer(board, controller, game_engine, move_history)
+    renderer.prompt_player_names()
 
     last_time = time.perf_counter()
     running = True

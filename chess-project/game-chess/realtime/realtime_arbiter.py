@@ -50,6 +50,7 @@ class RealTimeArbiter:
             self.game_state.pending_moves.remove(move)
 
             self.game_state.resting[move["to"]] = self.game_state.clock + LONG_REST_MS
+            self.game_state.resting_duration[move["to"]] = LONG_REST_MS
 
             move["captured_token"] = captured_token
             settled.append(move)
@@ -71,10 +72,12 @@ class RealTimeArbiter:
                           if t <= self.game_state.clock]
         for pos in due_positions:
             del self.game_state.resting[pos]
+            self.game_state.resting_duration.pop(pos, None)
 
     def _land_due_jumps(self):
         due_positions = [pos for pos, t in self.game_state.airborne.items()
                           if t <= self.game_state.clock]
         for pos in due_positions:
             del self.game_state.airborne[pos]
-            self.game_state.resting[pos] = self.game_state.clock + SHORT_REST_MS   
+            self.game_state.resting[pos] = self.game_state.clock + SHORT_REST_MS
+            self.game_state.resting_duration[pos] = SHORT_REST_MS

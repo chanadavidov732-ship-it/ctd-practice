@@ -41,6 +41,22 @@ class SpriteManager:
         elapsed_ms = move["duration"] - (move["completion_time"] - game_state.clock)
         return self.get_sprite(move["token"], STATE_MOVE, elapsed_ms)
 
+    def rest_fraction_remaining(self, pos, game_state):
+        """1.0 right as resting starts, 0.0 right as it's about to clear. None if not resting.
+
+        Uses game_state.resting_duration (the actual original duration for this
+        rest) rather than determine_state()'s remaining-time guess, which can't
+        tell a long_rest that has decayed below the threshold apart from a
+        short_rest that just started.
+        """
+        if pos not in game_state.resting:
+            return None
+        total = game_state.resting_duration.get(pos)
+        if not total:
+            return None
+        remaining = game_state.resting[pos] - game_state.clock
+        return max(0.0, min(1.0, remaining / total))
+
     def get_sprite(self, token, state, elapsed_ms):
         frames = self._load_frames(token, state)
         config = self._load_config(token, state)

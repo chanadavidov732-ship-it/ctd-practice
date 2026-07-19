@@ -35,6 +35,11 @@ DEFAULT_BLACK_NAME = "Black"
 ENTER_KEYS = (13, 10)
 BACKSPACE_KEY = 8
 
+REST_BAR_HEIGHT = 8
+REST_BAR_BG_COLOR = (20, 20, 20, 255)
+REST_BAR_FULL_COLOR = (0, 0, 255, 255)
+REST_BAR_EMPTY_COLOR = (0, 255, 0, 255)
+
 
 class Renderer:
     def __init__(self, board, controller, game_engine, move_history, square_size=100):
@@ -113,6 +118,7 @@ class Renderer:
         board_patch.draw_on(canvas_img, self.board_offset_x, self.board_offset_y)
 
         self._draw_pieces(canvas_img)
+        self._draw_rest_bars(canvas_img)
         self._draw_selection(canvas_img)
         self._draw_game_over(canvas_img)
         self._draw_history_panels(canvas_img)
@@ -152,6 +158,33 @@ class Renderer:
         x = from_x + (to_x - from_x) * progress
         y = from_y + (to_y - from_y) * progress
         return int(x), int(y)
+
+    def _draw_rest_bars(self, canvas_img):
+        game_state = self.game_engine.game_state
+        for pos in game_state.resting:
+            fraction = self.sprite_manager.rest_fraction_remaining(pos, game_state)
+            if fraction is None:
+                continue
+
+            col, row = pos
+            x = self.board_offset_x + col * self.square_size
+            y = self.board_offset_y + row * self.square_size + self.square_size - REST_BAR_HEIGHT
+
+            cv2.rectangle(
+                canvas_img.img,
+                (x, y),
+                (x + self.square_size, y + REST_BAR_HEIGHT),
+                REST_BAR_BG_COLOR,
+                -1,
+            )
+
+            bar_width = int(self.square_size * fraction)
+            if bar_width > 0:
+                color = self._lerp_color(REST_BAR_FULL_COLOR, REST_BAR_EMPTY_COLOR, 1 - fraction)
+                cv2.rectangle(canvas_img.img, (x, y), (x + bar_width, y + REST_BAR_HEIGHT), color, -1)
+
+    def _lerp_color(self, color_a, color_b, t):
+        return tuple(int(color_a[i] + (color_b[i] - color_a[i]) * t) for i in range(4))
 
     def _draw_game_over(self, canvas_img):
         if not self.game_engine.is_over:

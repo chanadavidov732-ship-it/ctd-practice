@@ -41,6 +41,14 @@ class SpriteManager:
         elapsed_ms = move["duration"] - (move["completion_time"] - game_state.clock)
         return self.get_sprite(move["token"], STATE_MOVE, elapsed_ms)
 
+    def jump_progress(self, pos, game_state):
+        """0.0 right as a jump starts, 1.0 right as it's about to land. None if not airborne."""
+        if pos not in game_state.airborne:
+            return None
+        remaining = game_state.airborne[pos] - game_state.clock
+        elapsed = JUMP_DURATION_MS - remaining
+        return max(0.0, min(1.0, elapsed / JUMP_DURATION_MS))
+
     def rest_fraction_remaining(self, pos, game_state):
         """1.0 right as resting starts, 0.0 right as it's about to clear. None if not resting.
 

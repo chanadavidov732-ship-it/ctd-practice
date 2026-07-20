@@ -1,3 +1,4 @@
+import math
 import pathlib
 
 import cv2
@@ -39,6 +40,8 @@ REST_BAR_HEIGHT = 8
 REST_BAR_BG_COLOR = (20, 20, 20, 255)
 REST_BAR_FULL_COLOR = (0, 0, 255, 255)
 REST_BAR_EMPTY_COLOR = (0, 255, 0, 255)
+
+JUMP_LIFT_PX = 40
 
 
 class Renderer:
@@ -156,6 +159,7 @@ class Renderer:
                 else:
                     sprite = self.sprite_manager.get_sprite_for_piece(token, pos, game_state)
                     x, y = col * self.square_size, row * self.square_size
+                    y -= self._jump_lift(pos, game_state)
 
                 sprite.draw_on(canvas_img, self.board_offset_x + x, self.board_offset_y + y)
 
@@ -170,6 +174,13 @@ class Renderer:
         x = from_x + (to_x - from_x) * progress
         y = from_y + (to_y - from_y) * progress
         return int(x), int(y)
+
+    def _jump_lift(self, pos, game_state):
+        """Pixels to rise by, following a hop arc that peaks mid-jump and returns to 0 on landing."""
+        progress = self.sprite_manager.jump_progress(pos, game_state)
+        if progress is None:
+            return 0
+        return int(JUMP_LIFT_PX * math.sin(math.pi * progress))
 
     def _draw_rest_bars(self, canvas_img):
         game_state = self.game_engine.game_state

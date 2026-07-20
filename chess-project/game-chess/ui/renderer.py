@@ -65,15 +65,24 @@ class Renderer:
             self.controller.handle_jump(board_x, board_y)
 
     def prompt_player_names(self):
-        """Blocks on this window, letting the user type each player's name before the game starts."""
-        self.player_name_white = self._prompt_text(
-            "Enter White player's name (Enter to confirm):", DEFAULT_WHITE_NAME
-        )
-        self.player_name_black = self._prompt_text(
-            "Enter Black player's name (Enter to confirm):", DEFAULT_BLACK_NAME
-        )
+        """Blocks on this window, letting the user type each player's name before the game starts.
+
+        Returns False if the window was closed before both names were entered.
+        """
+        white = self._prompt_text("Enter White player's name (Enter to confirm):", DEFAULT_WHITE_NAME)
+        if white is None:
+            return False
+        self.player_name_white = white
+
+        black = self._prompt_text("Enter Black player's name (Enter to confirm):", DEFAULT_BLACK_NAME)
+        if black is None:
+            return False
+        self.player_name_black = black
+
+        return True
 
     def _prompt_text(self, prompt, default):
+        """Returns the typed text (or default), or None if the window was closed."""
         canvas_width, canvas_height = self._canvas_size()
         text = ""
         while True:
@@ -84,6 +93,8 @@ class Renderer:
             cv2.imshow(WINDOW_NAME, frame.img)
 
             key = cv2.waitKey(FRAME_DELAY_MS)
+            if cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1:
+                return None
             if key in ENTER_KEYS:
                 break
             elif key == BACKSPACE_KEY:
@@ -94,9 +105,10 @@ class Renderer:
         return text.strip() or default
 
     def render(self):
-        """Draws one frame. Returns False once the user asked to quit (window closed)."""
+        """Draws one frame. Returns False once the user asked to quit (key or the window's own close button)."""
         key = self._draw_frame()
-        if key in QUIT_KEYS:
+        closed_by_user = cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1
+        if key in QUIT_KEYS or closed_by_user:
             cv2.destroyAllWindows()
             return False
         return True

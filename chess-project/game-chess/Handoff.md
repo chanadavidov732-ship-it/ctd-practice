@@ -40,8 +40,9 @@ The project follows strict separation of concerns, inspired by Clean Architectur
 
 - **Python 3.13**
 - **pytest** for unit testing (`pytest-9.1.1`)
-- No external dependencies beyond stdlib at the current stage (no graphical UI yet — text only)
+- No external dependencies declared in any manifest — but as of the graphical UI work (see below), `opencv-python` (`cv2`) and `numpy` are actually imported and required to run `ui/app-ui.py`. Still not formalized in a `requirements.txt`/`pyproject.toml` — open item, see section 10.
 - I/O is done via `stdin`/`stdout` (Text IO), suited for running as `python app.py < script.kfc`
+- **A graphical UI now exists** (`ui/renderer.py`, `ui/sprite_manager.py`, `ui/app-ui.py`) — OpenCV/`Img`-based, built on top of everything in this document without changing move legality, capture, or timing rules. This document (`Handoff.md`) still covers only the logic layers (`model`/`rules`/`realtime`/`engine`/`input`/`io_options`/`text_test`); the graphical layer is documented separately and in full in **`ui/UI_DESIGN.md`** — read that file for anything UI-related. A few small, purely additive changes the UI work made to the logic layers are called out inline below (search this document for "UI work").
 
 ---
 
@@ -51,12 +52,13 @@ The repo root previously also had a sibling `graphics/` folder (sprite/animation
 
 ```
 game-chess/                    # note the hyphen — not "game_chess"
-├── app.py                      # Main entry point (Composition Root)
+├── app.py                      # [UI work] TEXT-MODE entry point only — reads board, calls game_setup.build_game, runs run_commands. No import of ui/ at all.
+├── game_setup.py                # [UI work] shared composition-root factory: build_game(grid) -> (board, game_state, arbiter, game_engine, board_mapper, controller). Used by both app.py and ui/app-ui.py so neither duplicates the wiring.
 ├── model/
 │   ├── position.py              # namedtuple Position (col, row)
 │   ├── piece.py                 # token_color(), token_type() - token parsing
 │   ├── board.py                 # Board: grid, get/set_piece, is_inside, height/width
-│   └── game_state.py            # GameState: clock, pending_moves, locked, airborne
+│   └── game_state.py            # GameState: clock, pending_moves, locked, airborne, resting, [UI work] resting_duration
 ├── rules/
 │   ├── piece_rules.py           # MOVEMENT_VALIDATORS, is_legal_move, is_sliding_piece,
 │   │                             # is_legal_pawn_move/capture, pawn_start_row, pawn_promotion_row
@@ -80,9 +82,10 @@ game-chess/                    # note the hyphen — not "game_chess"
 │   ├── script_parser.py         # parse_command() - click/jump/wait/print board
 │   └── script_runner.py         # run_commands() - runs a script from stdin
 ├── ui/                          # moved/renamed from the old root-level graphics/ folder - see section 4a
-│   ├── img.py                    # Img: OpenCV (cv2) + numpy helper - read/resize, draw_on (alpha-blend), put_text, show
-│   ├── renderer.py               # currently an empty stub - not yet implemented
-│   ├── sprite_manager.py         # currently an empty stub - not yet implemented
+│   ├── img.py                    # Img: OpenCV (cv2) + numpy helper - read/resize, draw_on (alpha-blend), put_text, show - never modified by the UI work
+│   ├── renderer.py               # [UI work] fully implemented - see ui/UI_DESIGN.md (was an empty stub)
+│   ├── sprite_manager.py         # [UI work] fully implemented - see ui/UI_DESIGN.md (was an empty stub)
+│   ├── app-ui.py                 # [UI work] the graphical entry point - `python ui/app-ui.py`, see ui/UI_DESIGN.md §8
 │   └── game_snapshot/            # sprite/animation assets (moved from graphics/, see section 4a for what changed)
 └── test/
     └── unit/
@@ -101,7 +104,9 @@ game-chess/                    # note the hyphen — not "game_chess"
 
 **Correction vs. earlier drafts of this document**: `view/`, `integration/`, and `scripts/` do **not exist yet at all** — not even as empty stub folders. Anyone starting the graphical-UI iteration needs to create `game-chess/view/` from scratch.
 
-### 4a. `game-chess/ui/` — sprite/animation assets + early renderer code (moved in from the old root-level `graphics/`, still not wired to the game logic)
+### 4a. `game-chess/ui/` — sprite/animation assets + graphical UI (moved in from the old root-level `graphics/`)
+
+**[UI work — supersedes most of this section]** Everything below describing `renderer.py`/`sprite_manager.py` as empty and "nothing wired up" is now **stale** — the graphical UI was fully built afterward. It is documented in full, including every deviation from the original plan, in **`ui/UI_DESIGN.md`** — read that file, not the paragraphs below, for how the renderer/sprite manager actually work today. The asset-migration history below (what changed vs. the old `graphics/` folder) is still accurate and kept for context.
 
 The root-level `graphics/` sibling folder described in earlier drafts of this document is **gone** — it was moved inside `game-chess/` and renamed to `ui/`. Along with the move, the asset set was trimmed and code stubs were added:
 
@@ -134,14 +139,12 @@ Each state's `config.json` still looks like:
 }
 ```
 
-**What's changed vs. the old `graphics/` folder, and why it still matters for whoever picks up the graphical-UI work:**
+**What's changed vs. the old `graphics/` folder** (still accurate, historical):
 - The assets now live **inside** `game-chess/` (under `ui/game_snapshot/`) instead of as a root sibling — no more crossing the package boundary to reach them.
 - Only one piece-skin set remains (`pieces_mine/`, the old `pieces1/`); the old `pieces2/` set was removed. The per-piece folder naming was also flipped from `<type><color>` (e.g. `QW`) to `<color><type>` (e.g. `wQ`), now matching the board token format used everywhere else (section 12) — don't assume the old naming from earlier drafts of this doc.
-- `renderer.py` and `sprite_manager.py` exist as **empty placeholder files** — the module layout for the UI work has been staked out, but no logic has been written yet.
-- `img.py` is still the only real code here, carried over (and extended with `numpy`) from the old `graphics/py/img.py` spike. It's still OpenCV-based, and OpenCV/`cv2`/`numpy` are still not declared as project dependencies anywhere (see section 3).
-- Nothing in the rest of `game-chess/` reads from `ui/` yet — nothing is wired up. This is still asset/spike prep for the still-missing renderer wiring (section 9), not a completed step.
-- This still introduces a **per-piece animation state machine** (`idle → move/jump → short_rest/long_rest → idle`, chained via `next_state_when_finished`) that **does not exist anywhere in the current game logic**. `GameState`/`RealTimeArbiter` only track `locked`/`airborne`/`pending_moves` — there is no concept of "which visual state is this piece in" yet.
-- `speed_m_per_sec` is still a **different unit and a different number** than `DEFAULT_SPEED` (ms/square) in `realtime/motion.py` — reconcile deliberately, don't assume they're meant to be the same value.
+- `speed_m_per_sec` (in the `config.json` files) is still a **different unit and a different number** than `DEFAULT_SPEED` (ms/square) in `realtime/motion.py`, and **still unreconciled** — `ui/renderer.py` never ended up needing it (animation frame timing uses `frames_per_sec` instead), so this was never revisited. Still an open item, see section 10.
+
+**[UI work — no longer true, see `ui/UI_DESIGN.md` for the current reality]** The following were true when this section was first written and are **not true anymore**: `renderer.py`/`sprite_manager.py` being empty placeholders; OpenCV/`numpy` not being required to run anything; nothing in `game-chess/` reading from `ui/`; there being no concept of "which visual state a piece is in." All of that now exists — `SpriteManager.determine_state(pos, game_state)` maps `game_state.locked`/`airborne`/`resting` (no new `GameState` field was needed for this) to one of `idle`/`move`/`jump`/`long_rest`/`short_rest`, entirely inside the UI layer.
 
 ### Files critical to understanding the architecture (read these first)
 1. **`engine/game_engine.py`** — the operational heart: shows the full decision sequence for every move/jump request.
@@ -156,7 +159,7 @@ Each state's `config.json` still looks like:
 ### Model
 - **`Position`**: `namedtuple("Position", ["col","row"])` — in practice most of the code still uses raw `(col, row)` tuples, not always the formal `Position`.
 - **`Board`**: wraps `grid` (list of lists of strings), exposes `get_piece`, `set_piece`, `is_inside`, `height`, `width`.
-- **`GameState`**: `clock` (int, ms), `pending_moves` (list of dict: from/to/token/completion_time), `locked` (set of positions), `airborne` (dict: pos → completion_time), `resting` (dict: pos → completion_time; new cooldown mechanic — see Realtime section below and section 7).
+- **`GameState`**: `clock` (int, ms), `pending_moves` (list of dict: from/to/token/completion_time/**duration** — see below), `locked` (set of positions), `airborne` (dict: pos → completion_time), `resting` (dict: pos → completion_time; cooldown mechanic — see Realtime section below and section 7), **`resting_duration`** (dict: pos → original total ms, i.e. `LONG_REST_MS` or `SHORT_REST_MS` — **[UI work]** added so the UI can compute an exact remaining-time fraction without guessing; see section 7 decision #13).
 - **`piece.py`**: `token_color(token)`, `token_type(token)` — parses the `"wR"`/`"bK"`/`"."` format.
 
 ### Rules
@@ -172,19 +175,19 @@ Each state's `config.json` still looks like:
 ### Realtime
 - **`motion.py`**: `calculate_duration(from_pos, to_pos, speed=DEFAULT_SPEED)` — **Chebyshev distance** (`max(|dx|,|dy|)`), **not** Euclidean! `DEFAULT_SPEED = 1000` (ms per square). `JUMP_DURATION_MS = 1000`. **New**: `LONG_REST_MS = 1000` (cooldown after a regular move settles) and `SHORT_REST_MS = 500` (cooldown after a jump lands safely) — see below.
 - **`realtime_arbiter.py`**: `RealTimeArbiter` holds references to `board` and `game_state`.
-  - `start_motion(from_pos, to_pos, token, completion_time)` — registers a move in `pending_moves`, adds to `locked`.
+  - `start_motion(from_pos, to_pos, token, completion_time, duration)` — registers a move in `pending_moves` (**[UI work]** `duration` is a new parameter, stored on the entry alongside `completion_time`; the caller, `GameEngine.request_move`, already computed it — this just exposes it instead of only implicitly encoding it in `completion_time`, so the UI can derive an animation progress fraction without recomputing `calculate_duration` itself), adds to `locked`.
   - `start_jump(pos)` — registers `airborne[pos] = clock + JUMP_DURATION_MS`.
   - `advance_time(ms)` — advances `clock`, calls `_settle_due_moves()`, then `_land_due_jumps()`, then `_release_due_rests()` (in that order!).
-  - `_settle_due_moves()` — **the most important function in the project**. For each move whose time has come: first checks for **air capture** (if the destination is in `airborne`, the arriving enemy is captured and the jumping piece stays put), otherwise performs the regular Atomic Update (including pawn promotion check) **and now also** sets `resting[move["to"]] = clock + LONG_REST_MS` — the landing square enters a cooldown before it can be selected/moved again. Returns the list of settled moves, each including `captured_token`.
-  - `_land_due_jumps()` — clears pieces that finished jumping without being captured; **now also** sets `resting[pos] = clock + SHORT_REST_MS` for a piece that lands safely (jump cooldown is shorter than a regular-move cooldown).
-  - `_release_due_rests()` — **new**. Clears `resting` entries whose completion time has passed, mirroring `_land_due_jumps`'s pattern for `airborne`.
+  - `_settle_due_moves()` — **the most important function in the project**. For each move whose time has come: first checks for **air capture** (if the destination is in `airborne`, the arriving enemy is captured and the jumping piece stays put), otherwise performs the regular Atomic Update (including pawn promotion check) and sets `resting[move["to"]] = clock + LONG_REST_MS` (plus, **[UI work]**, `resting_duration[move["to"]] = LONG_REST_MS`) — the landing square enters a cooldown before it can be selected/moved again. Returns the list of settled moves, each including `captured_token`.
+  - `_land_due_jumps()` — clears pieces that finished jumping without being captured; sets `resting[pos] = clock + SHORT_REST_MS` for a piece that lands safely (plus, **[UI work]**, `resting_duration[pos] = SHORT_REST_MS`) — jump cooldown is shorter than a regular-move cooldown.
+  - `_release_due_rests()` — clears `resting` entries whose completion time has passed, mirroring `_land_due_jumps`'s pattern for `airborne` (plus, **[UI work]**, clears the matching `resting_duration` entry).
 
 ### Engine
-- **`GameEngine`**: `request_move(from_pos, to_pos)` checks in order: `is_over?` → `is_locked(from_pos)` (**per-piece only — the global lock was removed, see section 7, decision #4**) → `rule_engine.check_move()` → if `OK`, triggers `arbiter.start_motion`. `request_jump(pos)` checks: `is_over?` → piece not `locked` → piece not already `airborne` → a piece exists on the cell → triggers `arbiter.start_jump`. `advance_time(ms)` calls `arbiter.advance_time`, and for each settled move checks if `captured_token` is a king (`token_type == "K"`) → if so, `is_over = True`. `is_locked(pos)` — a query used by the Controller **and now also by `request_move` itself**; returns `True` if `pos` is in `locked` OR in `resting`, so a piece that just arrived (or just landed a jump) reads as unavailable during its cooldown even though it's not in `game_state.locked`.
+- **`GameEngine`**: `request_move(from_pos, to_pos)` checks in order: `is_over?` → `is_locked(from_pos)` (**per-piece only — the global lock was removed, see section 7, decision #4; note this checks only the *mover*, `from_pos` — the target `to_pos` is never checked here, which is exactly why capturing a locked/resting piece has always been legal, see decision #13**) → `rule_engine.check_move()` → if `OK`, triggers `arbiter.start_motion`. `request_jump(pos)` checks: `is_over?` → piece not `locked` → piece not already `airborne` → a piece exists on the cell → triggers `arbiter.start_jump`. `advance_time(ms)` calls `arbiter.advance_time`, and for each settled move checks if `captured_token` is a king (`token_type == "K"`) → if so, `is_over = True`; **[UI work]** now ends with `return settled` (previously computed but discarded — the UI's move-history feature reads this).  `is_locked(pos)` — a query used by the Controller **and now also by `request_move` itself**; returns `True` if `pos` is in `locked` OR in `resting`, so a piece that just arrived (or just landed a jump) reads as unavailable during its cooldown even though it's not in `game_state.locked`.
 
 ### Input
 - **`BoardMapper`**: `pixel_to_cell(x,y)` based on `square_size=100`, returns `None` if outside the board.
-- **`Controller`**: `handle_click(x,y)` — manages the `selected` state. Checks `is_locked` **at the start** of the function (before selection logic) to ignore clicks on occupied cells. `handle_jump(x,y)` — calls `game_engine.request_jump` directly.
+- **`Controller`**: `handle_click(x,y)` — manages the `selected` state. `handle_jump(x,y)` — calls `game_engine.request_jump` directly. **[UI work — fixed, see section 7 decision #13]** `is_locked` is checked only where selection actually happens — picking a piece up (`self.selected is None`) or switching selection to another friendly piece — **not** on the move/capture-destination branch. Previously `is_locked(pos)` was checked unconditionally at the top of `handle_click`, which incorrectly also blocked clicking a locked/resting *enemy* piece as a capture target (even though `GameEngine.request_move` was always willing to allow it, since it only ever checks the mover's lock state).
 
 ### IO Options
 - **`board_parser.py`**: `read_board()` reads lines from stdin until `"Commands:"`. `validate_board()` checks squareness and valid tokens (`VALID_TOKENS`, currently built from `piece_registry`).
@@ -200,7 +203,7 @@ Each state's `config.json` still looks like:
 
 **Regular move (click → click):**
 1. User/script sends `click x1 y1` → `Controller.handle_click` → `BoardMapper.pixel_to_cell` → if there's a piece on the cell and it's not locked → `selected = {pos, color}`.
-2. Second `click x2 y2` → if same color as the selected piece, replace the selection. Otherwise → `GameEngine.request_move(from_pos, to_pos)`.
+2. Second `click x2 y2` → if same color as the selected piece (and not locked/resting), replace the selection. Otherwise → `GameEngine.request_move(from_pos, to_pos)` — **note**: this branch does *not* check whether the *destination* cell is locked/resting (see section 7 decision #13) — a locked/resting enemy piece is a perfectly legal capture target; only the *mover*'s own lock state (step 3) matters.
 3. `GameEngine` checks `is_over`, checks `is_locked(from_pos)` (**per-piece only** — the earlier global lock was removed, see section 7, decision #4), calls `rule_engine.check_move`.
 4. If `OK` → `arbiter.start_motion` → registered in `pending_moves`, `locked.add(from_pos)`.
 5. **The logical board has NOT changed yet!** — only when a sufficient `wait ms` arrives, `advance_time` advances `clock`, and `_settle_due_moves` performs the actual Atomic Update (including checking promotion / air capture / king capture).
@@ -217,8 +220,8 @@ Each state's `config.json` still looks like:
 ## 7. Important Architectural/Business Decisions Made
 
 1. **`io` → `io_options`**: the folder was renamed because `io` clashes with a Python stdlib module.
-2. **`app.py` sits at the project root**, not inside `text_test/` — it's the general entry point, not a test-only tool.
-3. **`is_locked` as a query in Controller**: moved from a check that originally lived in the monolithic legacy code, into `GameEngine.is_locked(pos)`, queried by `Controller` at the start of `handle_click` — so clicks on "busy" cells are fully ignored without disrupting selection.
+2. **`app.py` sits at the project root**, not inside `text_test/` — it's the general (text-mode) entry point, not a test-only tool. **[UI work]** Once the graphical UI existed, `app.py` briefly *was* the GUI entry point (iterations 1–12); it was then split back out — `app.py` returned to being the text-mode entry point exactly as described here, and the GUI moved to its own `ui/app-ui.py`, with the shared composition wiring factored into `game_setup.py::build_game(grid)` so neither entry point duplicates it. See `ui/UI_DESIGN.md` §8.
+3. **`is_locked` as a query in Controller**: moved from a check that originally lived in the monolithic legacy code, into `GameEngine.is_locked(pos)`, queried by `Controller`. **[UI work — refined, see decision #13]** Originally checked unconditionally at the very start of `handle_click`, before selection vs. move/capture was even distinguished; now checked only where it actually applies — picking up a piece, or switching to another friendly one — never on the move/capture-destination branch.
 4. **Global Lock — REMOVED.** A previous iteration had `GameEngine.request_move` checking `if self.game_state.locked:` (non-empty at all, not just whether the specific `from_pos` is locked), meaning only one active move could be in flight on the entire board at any given moment, regardless of piece/color. This deviated from the original description of "both players move simultaneously" and was left as an open question (see the former TODO in section 10). **It has now been reversed**: `request_move` checks only `self.is_locked(from_pos)` — i.e. whether *this specific square* is `locked` (mid-motion) or `resting` (post-arrival cooldown). Any number of pieces, on either side, can now be in motion at the same time; the only thing that blocks a piece is its own lock/rest state. `GameState.locked`/`GameState.resting` and `RealTimeArbiter` were not changed — they were already per-position; only the gate in `GameEngine.request_move` was removed. Covered by `test_second_piece_can_move_while_another_is_in_motion` in `test/unit/test_game_engine.py` (renamed and inverted from the old `test_second_piece_cannot_move_while_another_is_in_motion`, which asserted the opposite behavior).
 5. **Move duration = Chebyshev, not Euclidean**: fixed after a failing test (a queen moving diagonally) revealed that `calculate_duration` needed `max(|dx|,|dy|)` instead of `sqrt(dx²+dy²)` — matching real chess rules (diagonal movement costs the same as straight movement).
 6. **`DEFAULT_SPEED = 1000`** (ms per square) — changed from the original `200`, after external tests (input/expected output) revealed this was the expected value.
@@ -228,6 +231,8 @@ Each state's `config.json` still looks like:
 10. **Jumping was never checked against the (now-removed) global lock** — `request_jump` only checks whether *that specific piece* is locked/rested/already-airborne, not the global state, so this was already per-piece before decision #4 was reversed. **Resolved**: `request_jump` now calls `self.is_locked(pos)` (the same helper `request_move` uses) instead of checking `pos in self.game_state.locked` directly, so a `resting` piece can no longer jump either. Covered by `test_resting_piece_cannot_jump` in `test/unit/test_game_engine.py`.
 11. **Pawns are always handled via a separate path** in `rule_engine.check_move` (`if piece_type=="P": return _check_pawn_move(...)`) rather than through the generic `MOVEMENT_VALIDATORS` — because they have asymmetric rules (color-dependence, move≠capture) that don't fit the simple dx/dy model used by the other pieces.
 12. **New — Rest/cooldown after arrival, replacing the earlier "no cooldown" rule**: a previous iteration explicitly established (and tested, via a now-deleted test named `test_piece_can_move_again_immediately_after_arrival_no_cooldown`) that a piece could be redirected the instant it arrived. That has been **reversed**: `GameState.resting` (dict: pos → completion_time) now tracks a post-arrival cooldown, checked by `GameEngine.is_locked`. Two different durations apply: `LONG_REST_MS = 1000` after a regular move settles (`_settle_due_moves`), and the shorter `SHORT_REST_MS = 500` after a jump lands safely (`_land_due_jumps`). Resting is per-position, not global — it does not block other pieces elsewhere on the board (matching `locked`, which itself became purely per-position once the global lock was removed — decision #4).
+13. **[UI work] A locked/resting piece can always be captured — only picking one up was ever meant to be blocked.** Confirmed directly against `GameEngine`/`RealTimeArbiter` (bypassing `Controller` entirely): `request_move` only ever checks `is_locked(from_pos)` — the *mover* — never `to_pos`; `rule_engine.check_move` doesn't look at lock/rest state at all; `_settle_due_moves` just captures whatever `board.get_piece(to)` currently holds. This was true from the very first iteration that introduced `resting`/`locked`. What was actually broken was reachability through the UI: `Controller.handle_click` (see decision #3) blocked *any* click on a locked/resting cell, including a capture click aimed at the enemy's locked/resting piece, before `request_move` was ever called. Fixed by scoping the `is_locked` check to the two selection branches only (see decision #3) — no change to `rule_engine.py`, `game_engine.py`, or `realtime_arbiter.py` was needed or made.
+14. **[UI work] Small additive exposures added to logic-layer code to support the UI, none changing existing behavior**: `start_motion(..., duration)` — the already-computed `duration` is now passed through and stored on the `pending_moves` entry instead of only being implicitly encoded in `completion_time`; `GameState.resting_duration` — a new dict recording which of `LONG_REST_MS`/`SHORT_REST_MS` a given `resting` entry actually used, populated/cleared in lockstep with `resting` itself; `GameEngine.advance_time` now `return settled` instead of discarding it. All three exist purely so the UI (`ui/UI_DESIGN.md` §11a) can read data the engine already computes, without recomputing any of it or duplicating business logic in the UI layer. Confirmed via the full existing test suite passing unchanged after each.
 
 ---
 
@@ -248,14 +253,15 @@ Based on the 11 iterations done so far:
 11. ✅ Jump mechanic and air capture — including full wiring in `Controller`, `script_parser`, `script_runner`.
 12. ✅ Rest/cooldown after arrival (`GameState.resting`, section 7 #12) — a regular move's destination and a safely-landed jump's cell are now unavailable for a further beat (`LONG_REST_MS`/`SHORT_REST_MS`) via `GameEngine.is_locked`.
 13. ✅ **Global lock removed** — `GameEngine.request_move` now gates only on `self.is_locked(from_pos)` (per-piece: `locked` or `resting`) instead of on `game_state.locked` being non-empty. Any number of pieces can be mid-motion across the board simultaneously; only a piece that is itself mid-motion or resting is blocked. See section 7 #4 (updated) for the full rationale and the test that locks in the new behavior.
+14. ✅ **[UI work] Full graphical UI** — `ui/renderer.py` + `ui/sprite_manager.py` (previously empty stubs, section 4a) are now fully implemented and wired to a dedicated entry point (`ui/app-ui.py`), on top of the logic layers described in this document without changing any of them beyond the small additive exposures in section 7 #14. Covers: board+piece rendering with full idle/move/jump/long_rest/short_rest animation, click/double-click input, move-sliding and jump-lift animation, a rest countdown bar, move history panels, player-name entry, and game-over display. Fully described, including every deviation from the original plan and every bug found along the way, in **`ui/UI_DESIGN.md`** — not duplicated here.
 
-Current test coverage: 64 unit tests passing (`pytest`), spread across all layers (except `view/`).
+Current test coverage: 65 unit tests passing (`pytest`), spread across all logic layers (the UI layer has no automated tests — verified manually/headlessly per iteration, see `ui/UI_DESIGN.md`).
 
 ---
 
 ## 9. What Is Still Missing
 
-- **Actual graphical UI** (`view/renderer.py`, `view/image_view.py`) — this is step 10 of the original 10 steps, and neither the `view/` folder nor any code for it exists yet. What **does** exist is a fresh, unwired asset library plus empty renderer/sprite-manager stubs at `game-chess/ui/` (sprites, board image, an OpenCV `img.py` helper) — see section 4a. Building the renderer means designing how those animation states (idle/move/jump/short_rest/long_rest) map onto the existing real-time model (`pending_moves`/`locked`/`airborne`), not starting from nothing.
+- ~~Actual graphical UI~~ **[UI work] Done** — see section 8 item 14 and `ui/UI_DESIGN.md`. That document's own §14 lists what's still open *within* the UI specifically (mainly: `speed_m_per_sec` reconciliation, no formal `cv2`/`numpy` dependency declaration, no legal-move highlighting/illegal-move feedback in the graphical UI).
 - **`.kfc` script files** under `scripts/` — not actually written during the conversation (mentioned in the structure but not created); the folder itself doesn't exist either.
 - **`integration/`** — no folder, no comprehensive end-to-end integration tests exist (only unit tests exist, even if some are "lightly integration-style").
 - **En Passant** — not implemented (not required by any iteration so far).
@@ -268,10 +274,10 @@ Current test coverage: 64 unit tests passing (`pytest`), spread across all layer
 
 ## 10. TODO List (explicit and implied from the conversation)
 
-- [ ] Implement `renderer.py` + `sprite_manager.py` under `game-chess/ui/` (currently empty stubs) with a graphical UI (step 10 of the spec), building on the sprite/animation assets already staged in `ui/game_snapshot/` (section 4a).
-- [ ] Decide how per-piece animation state (idle/move/jump/short_rest/long_rest, driven by `ui/game_snapshot/**/config.json`) is modeled — new Model state vs. a new layer — without letting `RealTimeArbiter`/`GameEngine` become visual-aware.
-- [ ] Reconcile `speed_m_per_sec` (in the `ui/game_snapshot/` configs) against `DEFAULT_SPEED`/`calculate_duration` (ms/square, Chebyshev) in `realtime/motion.py` — decide whether/how they map to each other.
-- [ ] Decide whether OpenCV (`cv2`, used by `ui/img.py`) becomes an actual project dependency, or gets replaced.
+- [x] ~~Implement `renderer.py` + `sprite_manager.py` under `game-chess/ui/` (currently empty stubs) with a graphical UI (step 10 of the spec), building on the sprite/animation assets already staged in `ui/game_snapshot/` (section 4a).~~ **Resolved** — see section 8 item 14 / `ui/UI_DESIGN.md`.
+- [x] ~~Decide how per-piece animation state (idle/move/jump/short_rest/long_rest, driven by `ui/game_snapshot/**/config.json`) is modeled — new Model state vs. a new layer — without letting `RealTimeArbiter`/`GameEngine` become visual-aware.~~ **Resolved**: entirely inside `SpriteManager.determine_state`, reading existing `GameState` fields — no new model state was needed. See `ui/UI_DESIGN.md` §4.
+- [ ] Reconcile `speed_m_per_sec` (in the `ui/game_snapshot/` configs) against `DEFAULT_SPEED`/`calculate_duration` (ms/square, Chebyshev) in `realtime/motion.py` — decide whether/how they map to each other. **Still open** — the built renderer ended up not needing `speed_m_per_sec` at all (uses `frames_per_sec` for animation timing instead), so this was never actually resolved, just avoided.
+- [ ] Decide whether OpenCV (`cv2`, used by `ui/img.py`, and now required to run `ui/app-ui.py`) becomes an actual declared project dependency (e.g. `requirements.txt`), or gets replaced. **Still open** — `cv2`/`numpy` are used directly in `renderer.py` too now (not just `img.py`), making this more pressing than before.
 - [ ] Actually write `.kfc` files under `scripts/` (board_parsing, click_to_move, invalid_moves, capture, game_over).
 - [x] ~~Finally confirm against the grader/spec: is the "global lock — only one move on the board" rule permanent, or an interim stage that will later be replaced with full concurrency (per-piece lock only)?~~ **Resolved**: the global lock was removed (section 7 #4) — `request_move` now uses per-piece `is_locked` only, so any number of pieces can move concurrently; only lock/rest state on that specific square blocks a move.
 - [x] ~~Decide and document: should jumping (`request_jump`) also use `is_locked(pos)` (i.e. also respect `resting`, not just `locked`)?~~ **Resolved**: `request_jump` now uses `self.is_locked(pos)`, so a resting piece can no longer jump — see section 7 #10.

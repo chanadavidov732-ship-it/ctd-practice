@@ -38,11 +38,14 @@ game-chess/
 │   │                   └── sprites/*.png
 │   ├── img.py                 # existing OpenCV/numpy helper — never modified
 │   ├── renderer.py            # [AS BUILT] fully implemented (was an empty stub)
-│   └── sprite_manager.py      # [AS BUILT] fully implemented (was an empty stub)
+│   ├── sprite_manager.py      # [AS BUILT] fully implemented (was an empty stub)
+│   └── app-ui.py              # [AS BUILT — see §8] the GUI entry point, split out of app.py
 ├── engine/game_engine.py      # [AS BUILT] one additive change — see §11a
 ├── realtime/realtime_arbiter.py  # [AS BUILT] two additive changes — see §11a
 ├── model/game_state.py        # [AS BUILT] one additive field — see §11a
-└── app.py                     # composition root / entry point + main real-time loop
+├── input/controller.py        # [AS BUILT] one behavior fix — see §8a
+├── game_setup.py               # [AS BUILT — see §8] shared composition-root factory
+└── app.py                     # [AS BUILT — see §8] text-mode entry point only, no UI dependency
 ```
 
 ---
@@ -171,21 +174,21 @@ Matches the original diagram exactly, with the mapping decided during implementa
 
 ---
 
-## 8. `app.py` (entry point) — as built
+## 8. Entry points — as built **[AS BUILT — split after iteration 12]**
 
-The original draft's pseudocode (`while True: render(snapshot); click = get_click(); ...`) was not implemented as written — no snapshot, no `get_click()`. The real loop:
+Originally (iterations 1–12) `app.py` at the project root **was** the GUI entry point, and the pre-existing text-mode path was simply not called anymore. **This was later split into two independent, single-purpose entry points**, sharing composition logic through a new small module:
+
+- **`game_setup.py`** (new, root-level, not a `Main`) — `build_game(grid) -> (board, game_state, arbiter, game_engine, board_mapper, controller)`. The one place that wires up `Board`/`GameState`/`RealTimeArbiter`/`GameEngine`/`BoardMapper`/`Controller`. Both entry points below call it instead of duplicating the wiring.
+- **`app.py`** (root) — **logic-only**, restored to its pre-UI purpose: reads the board from `stdin`, calls `build_game`, then runs `text_test.script_runner.run_commands` (the original click/jump/wait/print-board text protocol). **No dependency on `ui/` at all.**
+- **`ui/app-ui.py`** (new) — **the graphical entry point**, runnable directly from a terminal: `python ui/app-ui.py`. Inserts the project root onto `sys.path` (so it can be run from anywhere without `-m`), calls `build_game`, then owns the same real-time loop iteration 4–9 built:
 
 ```python
-board = Board(grid)
-game_state = GameState()
-arbiter = RealTimeArbiter(board, game_state)
-game_engine = GameEngine(board, game_state, arbiter)
-board_mapper = BoardMapper(board)
-controller = Controller(board, board_mapper, game_engine)
+board, game_state, arbiter, game_engine, board_mapper, controller = build_game(grid)
 
 move_history = []
 renderer = Renderer(board, controller, game_engine, move_history)
-renderer.prompt_player_names()          # blocks until both names are entered
+if not renderer.prompt_player_names():   # False if the window was closed before names were entered
+    return
 
 last_time = time.perf_counter()
 running = True
@@ -199,9 +202,25 @@ while running:
     running = renderer.render()                      # draws one frame, returns False to quit
 ```
 
-Mouse input is **not** polled here — it arrives asynchronously via the `cv2` callback registered inside `Renderer.__init__`, which calls straight into `Controller` (§3). `app.py`'s loop only drives time and drawing.
+Mouse input is **not** polled here — it arrives asynchronously via the `cv2` callback registered inside `Renderer.__init__`, which calls straight into `Controller` (§3). The loop only drives time and drawing.
 
-The pre-existing text-mode path (`text_test/script_runner.run_commands`) still exists and is untested by this change — `app.py` simply no longer calls it (replaced in iteration 1); it remains available for whoever wants to exercise the logic layers via `.kfc`-style scripts directly against `GameEngine`, independent of the GUI.
+### Standalone-launch default board **[AS BUILT]**
+
+`read_board()` blocks on `stdin` and, with nothing piped in, immediately hits `EOFError` → `validate_board` returns `"ERROR EMPTY_BOARD"` → `main()` prints it and returns **without ever opening a window**. This is exactly what happens if you just run `python ui/app-ui.py` with no redirection — not obvious for a "just run it" GUI entry point. Fixed with a `sys.stdin.isatty()` check: if stdin isn't piped/redirected, `ui/app-ui.py` skips `read_board()` entirely and starts from a hardcoded standard starting position (`DEFAULT_GRID`) instead. Piped custom boards (`python ui/app-ui.py < board.txt`, used throughout manual testing) are unaffected — that path still goes through `read_board()`/`validate_board()` exactly as before.
+
+### Closing the window **[AS BUILT — fixed after iteration 12]**
+
+Originally only `ESC`/`q` (checked via the `cv2.waitKey()` return value) ended the loop — clicking the window's own OS-level close ("X") button did nothing: the loop kept calling `cv2.imshow` against a window that no longer existed. Fixed by checking `cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1` every frame in `Renderer.render()`, in addition to the key check — either one now ends the loop and calls `cv2.destroyAllWindows()`. The same check was added inside `_prompt_text()`'s sub-loop (name entry, §9): if the window is closed there, `_prompt_text` returns `None`, `prompt_player_names()` returns `False`, and `ui/app-ui.py` exits cleanly instead of entering the main loop against a dead window.
+
+---
+
+## 8a. `Controller.handle_click` fix — capturing a locked/resting piece **[AS BUILT — bug fix, not a design change]**
+
+Business rule (confirmed against the engine directly, bypassing the UI): **capturing a locked or resting piece was always supposed to work** — `rule_engine.check_move` never looks at lock/rest state at all, and `GameEngine.request_move` only ever checks `is_locked(from_pos)` (the *attacker*), never `to_pos` (the *target*). This was true from iteration 1 onward and confirmed by driving `GameEngine.request_move` directly.
+
+What didn't work was reaching that code path **through a click**: `Controller.handle_click` (input layer, predates the UI work) had a single `if self.game_engine.is_locked(pos): return` guard at the very top, before it even knew whether `pos` was going to be used to *select* a piece or as the *destination* of an already-selected one. A click aimed at a locked/resting enemy piece — the capture target — was silently swallowed before `request_move` was ever called.
+
+**Fix, scoped to `input/controller.py` only:** the `is_locked` check moved to apply only where it's actually meant to — picking a piece up (`self.selected is None`) or switching selection to another friendly piece (`color == self.selected["color"]`). The third branch (different color, or empty cell → move/capture target) no longer checks `is_locked(pos)` at all; `GameEngine.request_move` already correctly gates on the *mover's* own lock state, unaffected. Verified both ways directly through `Controller.handle_click` (simulated clicks): a locked/resting piece still can't be *selected* (preserves the iteration-11 behavior), and a locked/resting *enemy* piece can now be clicked as a capture target and is correctly captured.
 
 ---
 
@@ -220,7 +239,7 @@ This was added specifically because there is (and was) no concept of a player na
 ## 10. Class Interaction **[AS BUILT]**
 
 ```
-app.py:
+ui/app-ui.py:
   GameEngine.advance_time(elapsed_ms) -> settled moves -> move_history.extend(settled)
   Renderer.render() -> reads board / controller / game_engine.game_state / move_history live
                      -> SpriteManager (state + frame selection) -> Img (draw) -> cv2 (window)
@@ -273,6 +292,16 @@ A small thin progress bar drawn along the bottom edge of any cell in `game_state
 - `SpriteManager.rest_fraction_remaining(pos, game_state)` → `1.0` right as resting starts, decaying to `0.0` right before it clears, using `game_state.resting_duration[pos]` as the authoritative total (see §11a) — **not** `determine_state()`'s remaining-time guess, which is ambiguous in exactly this use case (§4).
 - `Renderer._draw_rest_bars`: for each resting position, draws a full-width dark track, then a fill rectangle `square_size * fraction` wide, colored by linear interpolation from red (`fraction=1.0`, just locked) to green (`fraction=0.0`, about to unlock).
 - Drawn after pieces, before the selection highlight, so it sits at the bottom of the cell without covering the piece sprite.
+
+---
+
+## 13a. Jump Lift Animation **[NEW — added after iteration 12, not in the original draft]**
+
+The `jump` sprite state (§4) changes which frame is drawn but never moved the piece's *pixel position* — a jumping piece stayed pinned to its cell the whole time, which didn't read as a jump. Fixed with a vertical hop arc:
+
+- `SpriteManager.jump_progress(pos, game_state)` → `0.0` right as a jump starts, `1.0` right as it's about to land, `None` if not airborne — same shape as `rest_fraction_remaining` (§13), derived from `game_state.airborne[pos]` and the constant `JUMP_DURATION_MS`.
+- `Renderer._jump_lift(pos, game_state)` → pixel offset `JUMP_LIFT_PX * sin(π · progress)` (`JUMP_LIFT_PX = 40`) — 0 at takeoff, peaks at 40px at the midpoint, back to 0 on landing. Subtracted from the piece's normal `y` draw position in `_draw_pieces` (only for stationary/non-`pending_move` pieces — a piece can't be simultaneously jumping and mid-move).
+- Verified headlessly across 5 controlled clock points through a full jump (0 → 28 → 40 → 28 → 0px) and visually via a saved frame at the midpoint, showing the piece risen clearly above its cell.
 
 ---
 

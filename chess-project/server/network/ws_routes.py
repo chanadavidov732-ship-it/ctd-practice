@@ -4,6 +4,8 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from bus.event_bus import event_bus
 from bus.events import ClientConnected
+from server.auth.auth import login as auth_login
+from server.auth.auth import register as auth_register
 from shared.protocol import Envelope
 
 logger = logging.getLogger("server")
@@ -11,12 +13,27 @@ logger = logging.getLogger("server")
 router = APIRouter()
 
 
-def handle_echo(payload: dict) -> dict:
+async def handle_echo(payload: dict) -> dict:
     return payload
+
+
+async def handle_login(payload: dict) -> dict:
+    return await auth_login(payload.get("username", ""), payload.get("password", ""))
+
+
+async def handle_register(payload: dict) -> dict:
+    return await auth_register(payload.get("username", ""), payload.get("password", ""))
 
 
 HANDLERS = {
     "echo": handle_echo,
+    "login": handle_login,
+    "register": handle_register,
+}
+
+RESPONSE_TYPE = {
+    "login": "login_result",
+    "register": "register_result",
 }
 
 
@@ -41,8 +58,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 )
             else:
                 response = Envelope(
-                    type=envelope.type,
-                    payload=handler(envelope.payload),
+                    type=RESPONSE_TYPE.get(envelope.type, envelope.type),
+                    payload=await handler(envelope.payload),
                     request_id=envelope.request_id,
                 )
 

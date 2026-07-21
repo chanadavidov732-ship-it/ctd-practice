@@ -1,5 +1,5 @@
-from model.board import Board
-from input.board_mapper import BoardMapper
+from shared.model.board import Board
+from client.input.board_mapper import BoardMapper
 
 def make_mapper(rows):
     grid = [row.split() for row in rows]

@@ -1,4 +1,4 @@
-from model.piece import token_color
+from shared.model.piece import token_color
 
 class Controller:
     def __init__(self, board, board_mapper, game_engine):

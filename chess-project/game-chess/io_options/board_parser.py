@@ -1,4 +1,4 @@
-from rules.piece_registry import PIECE_TYPES, COLORS
+from shared.rules.piece_registry import PIECE_TYPES, COLORS
 
 VALID_TOKENS = {"."} | {c + t for c in COLORS for t in PIECE_TYPES}
 

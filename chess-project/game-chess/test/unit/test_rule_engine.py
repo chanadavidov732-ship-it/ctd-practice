@@ -1,5 +1,5 @@
-from model.board import Board
-from rules import rule_engine
+from shared.model.board import Board
+from shared.rules import rule_engine
 
 
 def make_board(rows):

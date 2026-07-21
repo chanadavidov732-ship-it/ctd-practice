@@ -1,6 +1,6 @@
-from model.piece import token_type, token_color
-from rules import rule_engine
-from realtime.motion import calculate_duration, DEFAULT_SPEED, JUMP_DURATION_MS
+from shared.model.piece import token_type, token_color
+from shared.rules import rule_engine
+from shared.realtime.motion import calculate_duration, DEFAULT_SPEED, JUMP_DURATION_MS
 
 class GameEngine:
     def __init__(self, board, game_state, arbiter, speed=DEFAULT_SPEED):

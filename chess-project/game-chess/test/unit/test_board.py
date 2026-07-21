@@ -1,4 +1,4 @@
-from model.board import Board
+from shared.model.board import Board
 
 def make_board(rows):
     grid = [row.split() for row in rows]

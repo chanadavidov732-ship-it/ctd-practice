@@ -1,5 +1,5 @@
-from model.piece import token_color
-from rules.piece_rules import is_legal_move, is_sliding_piece, is_legal_pawn_move, is_legal_pawn_capture
+from shared.model.piece import token_color
+from shared.rules.piece_rules import is_legal_move, is_sliding_piece, is_legal_pawn_move, is_legal_pawn_capture
 
 OK = "OK"
 OUT_OF_BOUNDS = "OUT_OF_BOUNDS"

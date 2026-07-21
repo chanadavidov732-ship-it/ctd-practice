@@ -2,11 +2,13 @@ import pathlib
 import sys
 import time
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+_PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(_PROJECT_ROOT))
+sys.path.insert(0, str(_PROJECT_ROOT / "game-chess"))
 
 from game_setup import build_game
 from io_options.board_parser import read_board, validate_board
-from ui.renderer import Renderer
+from client.ui.renderer import Renderer
 
 DEFAULT_GRID = [
     ["bR", "bN", "bB", "bQ", "bK", "bB", "bN", "bR"],

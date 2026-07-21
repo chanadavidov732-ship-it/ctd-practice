@@ -1,9 +1,9 @@
-from model.board import Board
-from model.game_state import GameState
-from realtime.realtime_arbiter import RealTimeArbiter
+from shared.model.board import Board
+from shared.model.game_state import GameState
+from shared.realtime.realtime_arbiter import RealTimeArbiter
 from engine.game_engine import GameEngine
-from input.board_mapper import BoardMapper
-from input.controller import Controller
+from client.input.board_mapper import BoardMapper
+from client.input.controller import Controller
 from io_options.board_printer import print_board
 
 

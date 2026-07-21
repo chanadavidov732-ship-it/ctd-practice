@@ -1,9 +1,9 @@
-from model.board import Board
-from model.game_state import GameState
-from realtime.realtime_arbiter import RealTimeArbiter
+from shared.model.board import Board
+from shared.model.game_state import GameState
+from shared.realtime.realtime_arbiter import RealTimeArbiter
 from engine.game_engine import GameEngine
-from input.board_mapper import BoardMapper
-from input.controller import Controller
+from client.input.board_mapper import BoardMapper
+from client.input.controller import Controller
 
 
 def make_setup(rows):
@@ -139,7 +139,7 @@ def test_jump_captures_arriving_enemy_and_stays_in_place():
     assert board.get_piece((0, 7)) == "."
 
 
-from realtime.motion import LONG_REST_MS, SHORT_REST_MS
+from shared.realtime.motion import LONG_REST_MS, SHORT_REST_MS
 
 
 def test_piece_cannot_move_immediately_after_arrival_due_to_resting():

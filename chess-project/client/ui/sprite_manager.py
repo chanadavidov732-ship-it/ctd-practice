@@ -1,8 +1,8 @@
 import json
 import pathlib
 
-from ui.img import Img
-from realtime.motion import JUMP_DURATION_MS, LONG_REST_MS, SHORT_REST_MS
+from client.ui.img import Img
+from shared.realtime.motion import JUMP_DURATION_MS, LONG_REST_MS, SHORT_REST_MS
 
 SPRITES_ROOT = pathlib.Path(__file__).parent / "game_snapshot" / "pieces_mine"
 REST_THRESHOLD_MS = (LONG_REST_MS + SHORT_REST_MS) / 2

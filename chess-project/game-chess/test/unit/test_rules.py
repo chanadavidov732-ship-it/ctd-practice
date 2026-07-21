@@ -1,5 +1,5 @@
-from rules.piece_rules import is_legal_move
-from rules.piece_rules import is_legal_pawn_move, is_legal_pawn_capture
+from shared.rules.piece_rules import is_legal_move
+from shared.rules.piece_rules import is_legal_pawn_move, is_legal_pawn_capture
 
 def test_king_one_step_legal():
     assert is_legal_move("K", (3, 3), (3, 4)) is True

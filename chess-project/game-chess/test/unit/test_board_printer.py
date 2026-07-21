@@ -1,4 +1,4 @@
-from model.board import Board
+from shared.model.board import Board
 from io_options.board_printer import print_board
 
 def test_print_board_outputs_rows(capsys):

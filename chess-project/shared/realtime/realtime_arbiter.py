@@ -1,6 +1,6 @@
-from model.piece import token_type, token_color
-from rules.piece_rules import pawn_promotion_row
-from realtime.motion import JUMP_DURATION_MS, LONG_REST_MS, SHORT_REST_MS   
+from shared.model.piece import token_type, token_color
+from shared.rules.piece_rules import pawn_promotion_row
+from shared.realtime.motion import JUMP_DURATION_MS, LONG_REST_MS, SHORT_REST_MS
 
 class RealTimeArbiter:
     def __init__(self, board, game_state):

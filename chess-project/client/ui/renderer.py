@@ -3,9 +3,9 @@ import pathlib
 
 import cv2
 
-from model.piece import token_color
-from ui.img import Img
-from ui.sprite_manager import SpriteManager
+from shared.model.piece import token_color
+from client.ui.img import Img
+from client.ui.sprite_manager import SpriteManager
 
 BOARD_IMAGE_PATH = pathlib.Path(__file__).parent / "game_snapshot" / "board.png"
 WINDOW_NAME = "Image"

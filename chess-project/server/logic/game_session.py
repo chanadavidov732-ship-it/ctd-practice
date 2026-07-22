@@ -13,6 +13,7 @@ logger = logging.getLogger("server")
 
 TICK_MS = 100
 TICK_INTERVAL_SECONDS = TICK_MS / 1000
+DISCONNECT_RESIGN_SECONDS = 20
 
 
 @dataclass
@@ -42,6 +43,7 @@ class GameSession:
         self.viewers = viewers or []
         self.board, self.game_state, self.arbiter, self.engine = create_engine()
         self._tick_task: Optional[asyncio.Task] = None
+        self._disconnect_task: Optional[asyncio.Task] = None
         self._finished = False
 
     def _color_of(self, client_id: str) -> str | None:
@@ -99,6 +101,35 @@ class GameSession:
 
         self.engine.request_jump(pos)
 
+    async def handle_disconnect(self, client_id: str) -> None:
+        if self._finished or self._disconnect_task is not None:
+            return
+        player = next((p for p in self.players if p.client_id == client_id), None)
+        if player is None:
+            return
+        self._disconnect_task = asyncio.create_task(self._auto_resign_countdown(player))
+
+    async def _auto_resign_countdown(self, disconnected_player: PlayerSlot) -> None:
+        try:
+            for remaining in range(DISCONNECT_RESIGN_SECONDS, 0, -1):
+                if self._finished:
+                    return
+                await self._broadcast(Envelope(type="disconnect_countdown", payload={
+                    "session_id": self.session_id,
+                    "disconnected_username": disconnected_player.username,
+                    "seconds_remaining": remaining,
+                }))
+                await asyncio.sleep(1)
+
+            if self._finished:
+                return
+            winner_color = "b" if disconnected_player.color == "w" else "w"
+            await self._finish_game(winner_color, reason="disconnect")
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception("session %s: auto-resign countdown failed", self.session_id)
+
     async def _tick_loop(self) -> None:
         try:
             while not self._finished:
@@ -118,6 +149,8 @@ class GameSession:
                     break
         except asyncio.CancelledError:
             pass
+        except Exception:
+            logger.exception("session %s: tick loop failed", self.session_id)
 
     def _state_payload(self, settled=None) -> dict:
         return {
@@ -129,8 +162,19 @@ class GameSession:
             ],
         }
 
-    async def _finish_game(self, winner_color: str) -> None:
+    async def _finish_game(self, winner_color: str, reason: str = "king_captured") -> None:
+        if self._finished:
+            return
         self._finished = True
+        # Don't cancel ourselves: _finish_game is also called from within
+        # _auto_resign_countdown's own task once its 20s countdown completes.
+        if (
+            self._disconnect_task is not None
+            and self._disconnect_task is not asyncio.current_task()
+            and not self._disconnect_task.done()
+        ):
+            self._disconnect_task.cancel()
+
         winner = next(p for p in self.players if p.color == winner_color)
         loser = next(p for p in self.players if p.color != winner_color)
 
@@ -141,11 +185,12 @@ class GameSession:
             )
             new_ratings = {winner.username: new_winner_rating, loser.username: new_loser_rating}
 
-        logger.info("game over: session_id=%s winner=%s (%s)", self.session_id, winner.username, winner_color)
+        logger.info("game over: session_id=%s winner=%s (%s) reason=%s", self.session_id, winner.username, winner_color, reason)
         await self._broadcast(Envelope(type="game_over", payload={
             "session_id": self.session_id,
             "winner_color": winner_color,
             "winner_username": winner.username,
+            "reason": reason,
             "new_ratings": new_ratings,
         }))
         game_session_manager.remove(self.session_id)
@@ -153,14 +198,20 @@ class GameSession:
     async def _send_to(self, client_id: str, msg_type: str, payload: dict) -> None:
         for p in self.players:
             if p.client_id == client_id:
-                await p.websocket.send_json(Envelope(type=msg_type, payload=payload).to_dict())
+                await self._safe_send(p.websocket, Envelope(type=msg_type, payload=payload))
                 return
 
     async def _broadcast(self, envelope: Envelope) -> None:
         for p in self.players:
-            await p.websocket.send_json(envelope.to_dict())
+            await self._safe_send(p.websocket, envelope)
         for viewer_ws in self.viewers:
-            await viewer_ws.send_json(envelope.to_dict())
+            await self._safe_send(viewer_ws, envelope)
+
+    async def _safe_send(self, websocket, envelope: Envelope) -> None:
+        try:
+            await websocket.send_json(envelope.to_dict())
+        except Exception:
+            logger.warning("session %s: failed to send %s to a disconnected socket", self.session_id, envelope.type)
 
 
 class GameSessionManager:

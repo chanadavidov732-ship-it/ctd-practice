@@ -159,6 +159,12 @@ async def _leave_queue(ctx: ConnectionContext) -> None:
         player.timeout_task.cancel()
 
 
+async def _handle_game_disconnect(ctx: ConnectionContext) -> None:
+    session = game_session_manager.get_for_client(ctx.client_id)
+    if session is not None:
+        await session.handle_disconnect(ctx.client_id)
+
+
 def _parse_pos(value) -> tuple | None:
     if isinstance(value, (list, tuple)) and len(value) == 2 and all(isinstance(v, int) for v in value):
         return (value[0], value[1])
@@ -253,3 +259,4 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.info("client disconnected: %s", client)
         await _leave_room(ctx)
         await _leave_queue(ctx)
+        await _handle_game_disconnect(ctx)

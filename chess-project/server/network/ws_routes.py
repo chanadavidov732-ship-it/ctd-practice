@@ -6,8 +6,9 @@ from bus.event_bus import event_bus
 from bus.events import ClientConnected, PlayerJoinedRoom, PlayerQueued, RoomCreated, ViewerJoinedRoom
 from server.auth.auth import login as auth_login
 from server.auth.auth import register as auth_register
+from server.logic.game_session import game_session_manager
 from server.logic.matchmaking import QueuedPlayer, matchmaking
-from server.logic.room_manager import room_manager
+from server.logic.room_manager import RoomParticipant, room_manager
 from server.network.connection_registry import connection_registry
 from server.network.room_broadcaster import broadcast_room_state
 from shared.protocol import Envelope
@@ -49,8 +50,12 @@ async def handle_menu_select(payload: dict, ctx: ConnectionContext) -> dict:
     return {"received": True, "choice": choice, "message": f"'{choice}' selection received"}
 
 
+def _participant(ctx: "ConnectionContext") -> RoomParticipant:
+    return RoomParticipant(client_id=ctx.client_id, username=ctx.username, rating=ctx.rating, websocket=ctx.websocket)
+
+
 async def handle_create_room(payload: dict, ctx: ConnectionContext) -> dict:
-    room = room_manager.create_room(ctx.client_id)
+    room = room_manager.create_room(_participant(ctx))
     ctx.room_id = room.room_id
     connection_registry.add(room.room_id, ctx.websocket, ctx.client_id)
     await event_bus.publish(RoomCreated(room_id=room.room_id, client_id=ctx.client_id))
@@ -62,9 +67,9 @@ async def handle_create_room(payload: dict, ctx: ConnectionContext) -> dict:
     }
 
 
-async def handle_join_room(payload: dict, ctx: ConnectionContext) -> dict:
+async def handle_join_room(payload: dict, ctx: ConnectionContext) -> dict | None:
     room_id = payload.get("room_id", "")
-    room = room_manager.join_room(room_id, ctx.client_id)
+    room = room_manager.join_room(room_id, _participant(ctx))
     if room is None:
         return {"success": False, "message": "room not found"}
 
@@ -72,18 +77,27 @@ async def handle_join_room(payload: dict, ctx: ConnectionContext) -> dict:
     connection_registry.add(room_id, ctx.websocket, ctx.client_id)
     role = room.role_of(ctx.client_id)
 
+    # Sent directly and awaited before publishing: if this join completes the
+    # room's player pair, the PlayerJoinedRoom listener starts a GameSession and
+    # pushes "game_started" synchronously, which must not arrive before this ack.
+    ack = Envelope(
+        type="room_state",
+        payload={
+            "success": True,
+            "room_id": room_id,
+            "role": role,
+            "player_count": len(room.players),
+            "viewer_count": len(room.viewers),
+        },
+    )
+    await ctx.websocket.send_json(ack.to_dict())
+
     if role == "player":
         await event_bus.publish(PlayerJoinedRoom(room_id=room_id, client_id=ctx.client_id))
     else:
         await event_bus.publish(ViewerJoinedRoom(room_id=room_id, client_id=ctx.client_id))
 
-    return {
-        "success": True,
-        "room_id": room_id,
-        "role": role,
-        "player_count": len(room.players),
-        "viewer_count": len(room.viewers),
-    }
+    return None
 
 
 async def handle_cancel_room(payload: dict, ctx: ConnectionContext) -> dict:
@@ -145,6 +159,39 @@ async def _leave_queue(ctx: ConnectionContext) -> None:
         player.timeout_task.cancel()
 
 
+def _parse_pos(value) -> tuple | None:
+    if isinstance(value, (list, tuple)) and len(value) == 2 and all(isinstance(v, int) for v in value):
+        return (value[0], value[1])
+    return None
+
+
+async def handle_move(payload: dict, ctx: ConnectionContext) -> dict | None:
+    session = game_session_manager.get_for_client(ctx.client_id)
+    if session is None:
+        return {"success": False, "message": "not in an active game"}
+
+    from_pos = _parse_pos(payload.get("from"))
+    to_pos = _parse_pos(payload.get("to"))
+    if from_pos is None or to_pos is None:
+        return {"success": False, "message": "invalid move payload"}
+
+    await session.handle_move(ctx.client_id, from_pos, to_pos)
+    return None
+
+
+async def handle_jump(payload: dict, ctx: ConnectionContext) -> dict | None:
+    session = game_session_manager.get_for_client(ctx.client_id)
+    if session is None:
+        return {"success": False, "message": "not in an active game"}
+
+    pos = _parse_pos(payload.get("pos"))
+    if pos is None:
+        return {"success": False, "message": "invalid jump payload"}
+
+    await session.handle_jump(ctx.client_id, pos)
+    return None
+
+
 HANDLERS = {
     "echo": handle_echo,
     "login": handle_login,
@@ -155,6 +202,8 @@ HANDLERS = {
     "cancel_room": handle_cancel_room,
     "play": handle_play,
     "cancel_play": handle_cancel_play,
+    "move": handle_move,
+    "jump": handle_jump,
 }
 
 RESPONSE_TYPE = {
@@ -162,7 +211,6 @@ RESPONSE_TYPE = {
     "register": "register_result",
     "menu_select": "menu_ack",
     "create_room": "room_state",
-    "join_room": "room_state",
     "cancel_room": "room_state",
     "cancel_play": "play_cancelled",
 }

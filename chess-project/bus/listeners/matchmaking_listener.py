@@ -3,6 +3,7 @@ import logging
 
 from bus.event_bus import event_bus
 from bus.events import MatchFound, MatchTimeout, PlayerQueued
+from server.logic.game_session import game_session_manager
 from server.logic.matchmaking import matchmaking
 from shared.protocol import Envelope
 
@@ -47,6 +48,9 @@ async def on_player_queued(event: PlayerQueued) -> None:
                 "opponent_rating": other.rating,
             },
         ).to_dict())
+
+    # opponent queued first -> white, matches the "first" player convention used for Room games too
+    await game_session_manager.start_for_match(match_id, opponent, player)
 
 
 async def _expire_after_timeout(client_id: str) -> None:

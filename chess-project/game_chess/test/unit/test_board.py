@@ -8,7 +8,7 @@ def test_get_piece():
     board = make_board(["wR . .", ". . ."])
     assert board.get_piece((0, 0)) == "wR"
 
-def test_set_piece():
+def test_set_piece2():
     board = make_board([". . .", ". . ."])
     board.set_piece((1, 1), "bN")
     assert board.get_piece((1, 1)) == "bN"

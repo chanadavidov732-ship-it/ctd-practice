@@ -1,13 +1,4 @@
-import pathlib
-import sys
-
-# `game-chess` has a hyphen so it can't be imported as a normal package;
-# add it to sys.path the same way pytest.ini's `pythonpath = . game-chess` does.
-_GAME_CHESS_DIR = pathlib.Path(__file__).resolve().parents[2] / "game-chess"
-if str(_GAME_CHESS_DIR) not in sys.path:
-    sys.path.insert(0, str(_GAME_CHESS_DIR))
-
-from engine.game_engine import GameEngine  # noqa: E402
+from game_chess.engine.game_engine import GameEngine
 
 from shared.model.board import Board
 from shared.model.game_state import GameState

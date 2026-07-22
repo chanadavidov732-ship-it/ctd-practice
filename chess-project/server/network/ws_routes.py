@@ -25,15 +25,24 @@ async def handle_register(payload: dict) -> dict:
     return await auth_register(payload.get("username", ""), payload.get("password", ""))
 
 
+async def handle_menu_select(payload: dict) -> dict:
+    choice = payload.get("choice")
+    if choice not in ("play", "room"):
+        return {"received": False, "message": f"unknown menu choice: {choice}"}
+    return {"received": True, "choice": choice, "message": f"'{choice}' selection received"}
+
+
 HANDLERS = {
     "echo": handle_echo,
     "login": handle_login,
     "register": handle_register,
+    "menu_select": handle_menu_select,
 }
 
 RESPONSE_TYPE = {
     "login": "login_result",
     "register": "register_result",
+    "menu_select": "menu_ack",
 }
 
 

@@ -1,3 +1,4 @@
+from client.cli.room import run_room_menu
 from client.network.connection import ServerConnection
 from shared.protocol import Envelope
 
@@ -21,3 +22,6 @@ async def run_home_menu(connection: ServerConnection) -> None:
         await connection.send(Envelope(type="menu_select", payload={"choice": choice}))
         response = await connection.receive()
         print(f"server: {response.payload}")
+
+        if choice == "room":
+            await run_room_menu(connection)

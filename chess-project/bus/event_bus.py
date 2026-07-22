@@ -1,3 +1,4 @@
+import asyncio
 from collections import defaultdict
 from typing import Callable
 
@@ -9,9 +10,11 @@ class EventBus:
     def subscribe(self, event_type: type, handler: Callable) -> None:
         self._subscribers[event_type].append(handler)
 
-    def publish(self, event) -> None:
+    async def publish(self, event) -> None:
         for handler in self._subscribers[type(event)]:
-            handler(event)
+            result = handler(event)
+            if asyncio.iscoroutine(result):
+                await result
 
 
 event_bus = EventBus()

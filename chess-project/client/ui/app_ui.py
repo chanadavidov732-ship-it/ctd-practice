@@ -4,22 +4,12 @@ import time
 
 _PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
-sys.path.insert(0, str(_PROJECT_ROOT / "game-chess"))
+sys.path.insert(0, str(_PROJECT_ROOT / "game_chess"))
 
 from game_setup import build_game
 from io_options.board_parser import read_board, validate_board
 from client.ui.renderer import Renderer
-
-DEFAULT_GRID = [
-    ["bR", "bN", "bB", "bQ", "bK", "bB", "bN", "bR"],
-    ["bP"] * 8,
-    ["."] * 8,
-    ["."] * 8,
-    ["."] * 8,
-    ["."] * 8,
-    ["wP"] * 8,
-    ["wR", "wN", "wB", "wQ", "wK", "wB", "wN", "wR"],
-]
+from shared.model.standard_setup import STANDARD_START_GRID as DEFAULT_GRID
 
 
 def main():

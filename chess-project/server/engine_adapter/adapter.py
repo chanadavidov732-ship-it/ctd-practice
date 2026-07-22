@@ -3,19 +3,9 @@ from game_chess.engine.game_engine import GameEngine
 from shared.model.board import Board
 from shared.model.game_state import GameState
 from shared.model.piece import token_color, token_type
+from shared.model.standard_setup import STANDARD_START_GRID
 from shared.realtime.realtime_arbiter import RealTimeArbiter
 from shared.rules import rule_engine
-
-STANDARD_START_GRID = [
-    "bR bN bB bQ bK bB bN bR".split(),
-    "bP bP bP bP bP bP bP bP".split(),
-    ". . . . . . . .".split(),
-    ". . . . . . . .".split(),
-    ". . . . . . . .".split(),
-    ". . . . . . . .".split(),
-    "wP wP wP wP wP wP wP wP".split(),
-    "wR wN wB wQ wK wB wN wR".split(),
-]
 
 
 def create_engine():

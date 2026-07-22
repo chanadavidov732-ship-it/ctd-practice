@@ -2,10 +2,11 @@ import asyncio
 import contextlib
 
 from client.network.connection import ServerConnection
+from client.network.game_bridge import GameBridge, build_remote_engine, pump_game_messages
 from shared.protocol import Envelope
 
 
-async def run_play_menu(connection: ServerConnection) -> None:
+async def run_play_menu(connection: ServerConnection, bridge: GameBridge) -> None:
     await connection.send(Envelope(type="play", payload={}))
     response = await connection.receive()
     payload = response.payload
@@ -15,14 +16,15 @@ async def run_play_menu(connection: ServerConnection) -> None:
         return
 
     print(f"Queued for a match (rating: {payload.get('rating')})... (type 'cancel' to leave)")
-    await _wait_for_match(connection)
+    await _wait_for_match(connection, bridge)
 
 
-async def _wait_for_match(connection: ServerConnection) -> None:
-    matched = False
+async def _wait_for_match(connection: ServerConnection, bridge: GameBridge) -> None:
+    resolved = False
+    game_started_payload = None
 
     async def listen_for_match() -> None:
-        nonlocal matched
+        nonlocal resolved, game_started_payload
         while True:
             envelope = await connection.receive()
             if envelope.type == "match_found":
@@ -31,18 +33,20 @@ async def _wait_for_match(connection: ServerConnection) -> None:
                     f"Match found! Opponent: {opponent.get('opponent_username')} "
                     f"(rating: {opponent.get('opponent_rating')})"
                 )
-                matched = True
+            elif envelope.type == "game_started":
+                game_started_payload = envelope.payload
+                resolved = True
                 return
-            if envelope.type == "match_timeout":
+            elif envelope.type == "match_timeout":
                 print("No opponent found within 60 seconds.")
-                matched = True
+                resolved = True
                 return
 
     listen_task = asyncio.create_task(listen_for_match())
     try:
-        while not matched:
+        while not resolved:
             cmd = await asyncio.to_thread(input, "> ")
-            if matched:
+            if resolved:
                 break
             if cmd.strip().lower() == "cancel":
                 break
@@ -51,8 +55,15 @@ async def _wait_for_match(connection: ServerConnection) -> None:
         with contextlib.suppress(asyncio.CancelledError):
             await listen_task
 
-    if matched:
+    if game_started_payload is not None:
+        print("Game started -- opening the board window...")
+        engine = build_remote_engine(connection, game_started_payload)
+        bridge.notify_game_started(engine)
+        await pump_game_messages(connection, engine)
         return
+
+    if resolved:
+        return  # match_timeout
 
     await connection.send(Envelope(type="cancel_play", payload={}))
     response = await connection.receive()

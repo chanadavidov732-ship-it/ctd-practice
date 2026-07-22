@@ -3,11 +3,12 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
-from server.engine_adapter.adapter import check_move_reason, create_engine
+from server.engine_adapter.adapter import create_engine
 from server.logic import rating
 from shared.model.piece import token_color, token_type
 from shared.protocol import Envelope
 from shared.rules import rule_engine
+from shared.rules.move_validator import validate_jump, validate_move
 
 logger = logging.getLogger("server")
 
@@ -53,12 +54,17 @@ class GameSession:
         return None
 
     async def start(self) -> None:
-        await self._broadcast(Envelope(type="game_started", payload=self._state_payload()))
+        base_payload = self._state_payload()
+        for p in self.players:
+            await self._safe_send(p.websocket, Envelope(type="game_started", payload={**base_payload, "your_color": p.color}))
+        for viewer_ws in self.viewers:
+            await self._safe_send(viewer_ws, Envelope(type="game_started", payload={**base_payload, "your_color": None}))
         self._tick_task = asyncio.create_task(self._tick_loop())
 
     async def add_viewer(self, websocket) -> None:
         self.viewers.append(websocket)
-        await websocket.send_json(Envelope(type="game_update", payload=self._state_payload()).to_dict())
+        payload = {**self._state_payload(), "your_color": None}
+        await self._safe_send(websocket, Envelope(type="game_update", payload=payload))
 
     async def handle_move(self, client_id: str, from_pos: tuple, to_pos: tuple) -> None:
         if self._finished:
@@ -67,16 +73,7 @@ class GameSession:
         if color is None:
             return
 
-        if not (self.board.is_inside(from_pos) and self.board.is_inside(to_pos)):
-            await self._send_to(client_id, "move_rejected", {"reason": "OUT_OF_BOUNDS"})
-            return
-
-        token = self.board.get_piece(from_pos)
-        if token == "." or token_color(token) != color:
-            await self._send_to(client_id, "move_rejected", {"reason": "NOT_YOUR_PIECE"})
-            return
-
-        reason = check_move_reason(self.board, from_pos, to_pos)
+        reason = validate_move(self.board, color, from_pos, to_pos)
         if reason != rule_engine.OK:
             await self._send_to(client_id, "move_rejected", {"reason": reason})
             return
@@ -90,13 +87,9 @@ class GameSession:
         if color is None:
             return
 
-        if not self.board.is_inside(pos):
-            await self._send_to(client_id, "jump_rejected", {"reason": "OUT_OF_BOUNDS"})
-            return
-
-        token = self.board.get_piece(pos)
-        if token == "." or token_color(token) != color:
-            await self._send_to(client_id, "jump_rejected", {"reason": "NOT_YOUR_PIECE"})
+        reason = validate_jump(self.board, color, pos)
+        if reason != rule_engine.OK:
+            await self._send_to(client_id, "jump_rejected", {"reason": reason})
             return
 
         self.engine.request_jump(pos)
@@ -135,7 +128,16 @@ class GameSession:
             while not self._finished:
                 await asyncio.sleep(TICK_INTERVAL_SECONDS)
                 settled = self.engine.advance_time(TICK_MS)
-                if settled:
+                # Broadcast on every tick that has anything actually happening (a move/jump
+                # in flight, a piece resting, or something just settled) so clients can
+                # interpolate smooth motion; skip broadcasting while the board is fully idle.
+                anything_active = (
+                    settled
+                    or self.game_state.pending_moves
+                    or self.game_state.resting
+                    or self.game_state.airborne
+                )
+                if anything_active:
                     await self._broadcast(Envelope(type="game_update", payload=self._state_payload(settled)))
 
                 if self.engine.is_over:
@@ -156,10 +158,34 @@ class GameSession:
         return {
             "session_id": self.session_id,
             "board": [row[:] for row in self.board.grid],
+            "clock": self.game_state.clock,
+            "locked": [list(pos) for pos in self.game_state.locked],
+            "pending_moves": [
+                {
+                    "from": list(m["from"]),
+                    "to": list(m["to"]),
+                    "token": m["token"],
+                    "completion_time": m["completion_time"],
+                    "duration": m["duration"],
+                }
+                for m in self.game_state.pending_moves
+            ],
+            "resting": [
+                {"pos": list(pos), "until": until, "duration": self.game_state.resting_duration.get(pos)}
+                for pos, until in self.game_state.resting.items()
+            ],
+            "airborne": [{"pos": list(pos), "until": until} for pos, until in self.game_state.airborne.items()],
             "settled_moves": [
-                {"from": list(m["from"]), "to": list(m["to"]), "captured": m["captured_token"]}
+                {
+                    "from": list(m["from"]),
+                    "to": list(m["to"]),
+                    "token": m["token"],
+                    "captured": m["captured_token"],
+                }
                 for m in (settled or [])
             ],
+            "white_username": next(p.username for p in self.players if p.color == "w"),
+            "black_username": next(p.username for p in self.players if p.color == "b"),
         }
 
     async def _finish_game(self, winner_color: str, reason: str = "king_captured") -> None:

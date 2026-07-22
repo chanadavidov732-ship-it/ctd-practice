@@ -1,6 +1,7 @@
 from client.cli.play import run_play_menu
 from client.cli.room import run_room_menu
 from client.network.connection import ServerConnection
+from client.network.game_bridge import GameBridge
 from shared.protocol import Envelope
 
 MENU_CHOICES = {
@@ -9,7 +10,7 @@ MENU_CHOICES = {
 }
 
 
-async def run_home_menu(connection: ServerConnection) -> None:
+async def run_home_menu(connection: ServerConnection, bridge: GameBridge) -> None:
     while True:
         raw_choice = input("1) Play  2) Room  (or 'exit')\n> ").strip().lower()
         if raw_choice in ("exit", "quit"):
@@ -25,6 +26,6 @@ async def run_home_menu(connection: ServerConnection) -> None:
         print(f"server: {response.payload}")
 
         if choice == "room":
-            await run_room_menu(connection)
+            await run_room_menu(connection, bridge)
         elif choice == "play":
-            await run_play_menu(connection)
+            await run_play_menu(connection, bridge)

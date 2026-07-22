@@ -17,6 +17,9 @@ GAME_OVER_TEXT = "GAME OVER"
 GAME_OVER_COLOR = (0, 0, 255, 255)
 GAME_OVER_FONT_SIZE = 2
 
+DISCONNECT_TEXT_COLOR = (0, 165, 255, 255)
+DISCONNECT_FONT_SIZE = 0.55
+
 PANEL_WIDTH = 220
 PANEL_BG_COLOR = (40, 40, 40, 255)
 PANEL_TITLE_COLOR = (0, 255, 255, 255)
@@ -136,6 +139,7 @@ class Renderer:
         self._draw_rest_bars(canvas_img)
         self._draw_selection(canvas_img)
         self._draw_game_over(canvas_img)
+        self._draw_disconnect_countdown(canvas_img)
         self._draw_history_panels(canvas_img)
         self._draw_names(canvas_img)
         cv2.imshow(WINDOW_NAME, canvas_img.img)
@@ -221,6 +225,22 @@ class Renderer:
             GAME_OVER_FONT_SIZE,
             GAME_OVER_COLOR,
             thickness=3,
+        )
+
+    def _draw_disconnect_countdown(self, canvas_img):
+        # Only present on network games (RemoteGameEngine) -- the local GameEngine
+        # used by the single-machine mode has no such attribute at all.
+        countdown = getattr(self.game_engine, "disconnect_countdown", None)
+        if not countdown:
+            return
+        text = f"{countdown['disconnected_username']} disconnected -- resigning in {countdown['seconds_remaining']}s"
+        canvas_img.put_text(
+            text,
+            self.board_offset_x + 20,
+            self.board_offset_y + 25,
+            DISCONNECT_FONT_SIZE,
+            DISCONNECT_TEXT_COLOR,
+            thickness=2,
         )
 
     def _draw_selection(self, canvas_img):

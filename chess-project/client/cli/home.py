@@ -1,3 +1,4 @@
+from client.cli.play import run_play_menu
 from client.cli.room import run_room_menu
 from client.network.connection import ServerConnection
 from shared.protocol import Envelope
@@ -25,3 +26,5 @@ async def run_home_menu(connection: ServerConnection) -> None:
 
         if choice == "room":
             await run_room_menu(connection)
+        elif choice == "play":
+            await run_play_menu(connection)

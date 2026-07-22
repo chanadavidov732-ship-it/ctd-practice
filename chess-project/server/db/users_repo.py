@@ -40,6 +40,11 @@ def create_user(username: str, password: str) -> bool:
         return False
 
 
+def update_rating(username: str, rating: int) -> None:
+    with _connect() as conn:
+        conn.execute("UPDATE users SET rating = ? WHERE username = ?", (rating, username))
+
+
 def verify_user(username: str, password: str) -> tuple[bool, int | None]:
     with _connect() as conn:
         row = conn.execute(

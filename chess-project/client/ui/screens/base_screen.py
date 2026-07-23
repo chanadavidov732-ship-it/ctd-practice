@@ -17,6 +17,12 @@ class Screen:
     def __init__(self, bridge: AppBridge):
         self.bridge = bridge
         self.next_screen: tuple[type["Screen"], dict] | None = None
+        # Set True by a screen that just ran the legacy game loop (client.ui.
+        # game_runner.run_graphical_game) to completion -- ends the wrapper
+        # loop the same way closing the window would. Returning to a menu
+        # after a finished game is deliberately out of scope until iteration
+        # 16, so there is no screen to hand off to here.
+        self.should_quit = False
 
     def on_enter(self, payload: dict) -> None:
         """Called once, right after construction, with the payload handed off

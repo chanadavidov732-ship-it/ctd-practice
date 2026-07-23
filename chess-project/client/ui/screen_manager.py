@@ -51,6 +51,10 @@ class ScreenManager:
         while True:
             self.active_screen.update()
 
+            if self.active_screen.should_quit:
+                cv2.destroyAllWindows()
+                return
+
             canvas = self._blank_canvas()
             self.active_screen.render(canvas)
             cv2.imshow(WINDOW_NAME, canvas.img)

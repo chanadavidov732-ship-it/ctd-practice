@@ -17,6 +17,8 @@ from dataclasses import dataclass
 import websockets
 
 from client.network.connection import ServerConnection
+from client.network.game_bridge import build_remote_engine
+from client.network.remote_game_engine import RemoteGameEngine
 from shared.protocol import Envelope
 
 CONNECTED = "connected"
@@ -101,6 +103,16 @@ class AppBridge:
             await self._connection.send(envelope)
 
         asyncio.run_coroutine_threadsafe(_send(), self._loop)
+
+    def build_remote_engine(self, payload: dict) -> RemoteGameEngine:
+        """Called from the main thread once a "game_started" broadcast arrives
+        on some screen. Reuses game_bridge.build_remote_engine's send_move/
+        send_jump closures, but passes this bridge's own captured loop instead
+        of letting it call asyncio.get_running_loop() -- there is no running
+        loop on the main thread to detect."""
+        if self._loop is None or self._connection is None:
+            raise RuntimeError("AppBridge.run() must be started before build_remote_engine()")
+        return build_remote_engine(self._connection, payload, loop=self._loop)
 
     def poll_events(self) -> list[AppEvent]:
         """Called from the main thread, once per frame. Non-blocking: returns

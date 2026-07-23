@@ -1,10 +1,10 @@
 from shared.model.board import Board
 from shared.model.game_state import GameState
 from shared.realtime.realtime_arbiter import RealTimeArbiter
-from engine.game_engine import GameEngine
+from shared.engine.game_engine import GameEngine
 from client.input.board_mapper import BoardMapper
 from client.input.controller import Controller
-from io_options.board_printer import print_board
+from client.io_options.board_printer import print_board
 
 
 def make_setup(rows):

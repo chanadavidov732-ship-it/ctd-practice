@@ -1,5 +1,5 @@
-from text_test.script_parser import parse_command
-from io_options.board_printer import print_board
+from client.text_test.script_parser import parse_command
+from client.io_options.board_printer import print_board
 
 
 def run_commands(controller, game_engine, board):

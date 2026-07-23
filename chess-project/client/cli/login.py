@@ -1,5 +1,4 @@
 import asyncio
-import getpass
 import logging
 
 from client.network.connection import ServerConnection
@@ -15,7 +14,7 @@ async def do_login(connection: ServerConnection) -> bool:
     action = "register" if choice == "2" else "login"
 
     username = input("Username: ").strip()
-    password = getpass.getpass("Password: ")
+    password = input("Password: ").strip()
 
     await connection.send(Envelope(type=action, payload={"username": username, "password": password}))
     response = await connection.receive()

@@ -1,4 +1,4 @@
-from game_chess.engine.game_engine import GameEngine
+from shared.engine.game_engine import GameEngine
 
 from shared.model.board import Board
 from shared.model.game_state import GameState

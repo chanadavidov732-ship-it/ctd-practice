@@ -1,4 +1,4 @@
-from io_options.board_parser import validate_board
+from client.io_options.board_parser import validate_board
 
 def make_board(rows):
     return [row.split() for row in rows]

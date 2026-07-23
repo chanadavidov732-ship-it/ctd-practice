@@ -1,9 +1,10 @@
 import asyncio
+import contextlib
 
 import pytest
 import websockets
 
-from client.network.app_bridge import AppBridge, BROADCAST, CONNECTION_LOST, RESPONSE
+from client.network.app_bridge import AppBridge, BROADCAST, CONNECTED, CONNECTION_LOST, RESPONSE
 from shared.protocol import Envelope
 
 
@@ -108,3 +109,66 @@ def test_send_request_keeps_caller_supplied_request_id():
 
     connection = asyncio.run(scenario())
     assert connection.sent[0].request_id == "my-id"
+
+
+def test_connect_before_serve_raises():
+    bridge = AppBridge()
+    with pytest.raises(RuntimeError):
+        bridge.connect("ws://127.0.0.1:59999/ws")
+
+
+def test_serve_captures_the_running_loop():
+    async def scenario():
+        bridge = AppBridge()
+        task = asyncio.create_task(bridge.serve())
+        await asyncio.sleep(0)  # let serve() start and capture the loop
+        loop = bridge._loop
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        return loop
+
+    loop = asyncio.run(scenario())
+    assert loop is not None
+
+
+def test_connect_reports_connection_lost_when_nothing_is_listening():
+    # Nothing listens on this loopback port, so the handshake fails fast
+    # (ECONNREFUSED) without needing a real server for this test.
+    async def scenario():
+        bridge = AppBridge()
+        bridge._loop = asyncio.get_running_loop()
+        bridge.connect("ws://127.0.0.1:59999/ws")
+        for _ in range(50):  # up to ~5s for the refused-connection error to surface
+            if not bridge._events.empty():
+                break
+            await asyncio.sleep(0.1)
+        return bridge
+
+    bridge = asyncio.run(scenario())
+    events = bridge.poll_events()
+    assert [e.kind for e in events] == [CONNECTION_LOST]
+
+
+def test_connect_pushes_connected_before_starting_the_receive_loop():
+    """Exercises _connect_and_run's CONNECTED signal without a real socket by
+    monkeypatching ServerConnection with a fake that "connects" instantly."""
+
+    async def scenario(monkeypatch):
+        import client.network.app_bridge as app_bridge_module
+
+        fake_connection = FakeConnection([])
+        fake_connection.connect = lambda: asyncio.sleep(0)  # no-op "success"
+        monkeypatch.setattr(app_bridge_module, "ServerConnection", lambda uri: fake_connection)
+
+        bridge = AppBridge()
+        bridge._loop = asyncio.get_running_loop()
+        bridge.connect("ws://ignored/ws")
+        await asyncio.sleep(0.05)
+        return bridge
+
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        bridge = asyncio.run(scenario(monkeypatch))
+
+    events = bridge.poll_events()
+    assert [e.kind for e in events] == [CONNECTED, CONNECTION_LOST]

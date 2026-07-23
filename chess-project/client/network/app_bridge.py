@@ -1,12 +1,12 @@
 """Generalizes client.network.game_bridge.GameBridge's queue-based handoff
 pattern to every graphical wrapper screen, not just the game-start handoff.
 
-Threading model (same split as GameBridge): AppBridge.run() lives on the
-background asyncio network thread and owns the ServerConnection; send_request
-and poll_events are called from the main (OpenCV) thread. All cross-thread
-handoff goes through queue.Queue (thread-safe) and
-asyncio.run_coroutine_threadsafe (same mechanism client/network/game_bridge.py
-already uses for send_move/send_jump).
+Threading model (same split as GameBridge): AppBridge lives on the background
+asyncio network thread (started via `asyncio.run(bridge.serve())`) and owns
+the ServerConnection; connect(), send_request() and poll_events() are called
+from the main (OpenCV) thread. All cross-thread handoff goes through
+queue.Queue (thread-safe) and asyncio.run_coroutine_threadsafe (same
+mechanism client/network/game_bridge.py already uses for send_move/send_jump).
 """
 
 import asyncio
@@ -19,6 +19,7 @@ import websockets
 from client.network.connection import ServerConnection
 from shared.protocol import Envelope
 
+CONNECTED = "connected"
 RESPONSE = "response"
 BROADCAST = "broadcast"
 CONNECTION_LOST = "connection_lost"
@@ -37,13 +38,41 @@ class AppBridge:
         self._pending_request_id: str | None = None
         self._events: queue.Queue = queue.Queue()
 
+    async def serve(self) -> None:
+        """The network thread's entry point (run via `asyncio.run(bridge.serve())`).
+        Captures this thread's event loop -- so connect()/send_request(),
+        called from the main thread, have somewhere to hand work off to via
+        run_coroutine_threadsafe -- then idles for the rest of the process's
+        life. The actual connection is established later by connect()."""
+        self._loop = asyncio.get_running_loop()
+        await asyncio.Event().wait()
+
+    def connect(self, uri: str) -> None:
+        """Called from the main thread to (re)establish the connection --
+        once at startup and again each time a screen's "try again" is
+        clicked after a drop. Success pushes CONNECTED and starts the receive
+        loop (run()); failure pushes CONNECTION_LOST, exactly like a drop
+        after a successful connection, so screens react to both the same way."""
+        if self._loop is None:
+            raise RuntimeError("AppBridge.serve() must be running before connect()")
+        asyncio.run_coroutine_threadsafe(self._connect_and_run(uri), self._loop)
+
+    async def _connect_and_run(self, uri: str) -> None:
+        connection = ServerConnection(uri)
+        try:
+            await connection.connect()
+        except (OSError, websockets.InvalidHandshake):
+            self._events.put(AppEvent(kind=CONNECTION_LOST))
+            return
+        self._events.put(AppEvent(kind=CONNECTED))
+        await self.run(connection)
+
     async def run(self, connection: ServerConnection) -> None:
         """Runs on the network thread: owns `connection` and keeps receiving
         until the connection closes. One continuous loop replaces the
         scattered point-in-time connection.receive() calls that client/cli/*.py
         still use directly for their own (untouched) textual flow."""
         self._connection = connection
-        self._loop = asyncio.get_running_loop()
         try:
             while True:
                 envelope = await connection.receive()

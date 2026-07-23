@@ -14,7 +14,10 @@ from client.ui.renderer import WINDOW_NAME
 from client.ui.screens.base_screen import Screen
 
 FRAME_DELAY_MS = 30
-QUIT_KEYS = (27, ord("q"))
+# Esc only (unlike renderer.py's QUIT_KEYS, which also includes "q"): wrapper
+# screens keep a text field focused at all times, so "q" has to reach it as a
+# normal character instead of being swallowed as a quit shortcut.
+QUIT_KEYS = (27,)
 DEFAULT_CANVAS_WIDTH = 640
 DEFAULT_CANVAS_HEIGHT = 480
 BACKGROUND_COLOR = (30, 30, 30, 255)
@@ -53,6 +56,12 @@ class ScreenManager:
             cv2.imshow(WINDOW_NAME, canvas.img)
 
             key = cv2.waitKey(FRAME_DELAY_MS)
+            if key != -1:
+                # On Windows, waitKey()'s raw return value carries extra bits
+                # above the actual key code for some keys; masking to the low
+                # byte is the standard OpenCV fix (must skip -1 == "no key",
+                # since -1 & 0xFF would wrongly become 255).
+                key &= 0xFF
             closed_by_user = cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1
             if key in QUIT_KEYS or closed_by_user:
                 cv2.destroyAllWindows()

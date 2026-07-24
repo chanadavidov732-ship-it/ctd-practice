@@ -6,6 +6,7 @@ import cv2
 from shared.model.piece import token_color
 from client.ui.img import Img
 from client.ui.sprite_manager import SpriteManager
+from client.ui.widgets import Button
 
 BOARD_IMAGE_PATH = pathlib.Path(__file__).parent / "game_snapshot" / "board.png"
 WINDOW_NAME = "Image"
@@ -16,6 +17,11 @@ QUIT_KEYS = (27, ord("q"))
 GAME_OVER_TEXT = "GAME OVER"
 GAME_OVER_COLOR = (0, 0, 255, 255)
 GAME_OVER_FONT_SIZE = 2
+
+BACK_TO_MENU_TEXT = "Back to Menu"
+BACK_TO_MENU_BUTTON_WIDTH = 220
+BACK_TO_MENU_BUTTON_HEIGHT = 50
+BACK_TO_MENU_BUTTON_Y_OFFSET = 40
 
 DISCONNECT_TEXT_COLOR = (0, 165, 255, 255)
 DISCONNECT_FONT_SIZE = 0.55
@@ -59,10 +65,16 @@ class Renderer:
         self.player_name_white = DEFAULT_WHITE_NAME
         self.player_name_black = DEFAULT_BLACK_NAME
         self.sprite_manager = SpriteManager(square_size)
+        self.wants_menu = False
+        self._back_to_menu_button: Button | None = None
         cv2.namedWindow(WINDOW_NAME)
         cv2.setMouseCallback(WINDOW_NAME, self._on_mouse)
 
     def _on_mouse(self, event, x, y, flags, param):
+        if event == cv2.EVENT_LBUTTONDOWN and self._back_to_menu_button is not None and self._back_to_menu_button.hit_test(x, y):
+            self.wants_menu = True
+            return
+
         board_x = x - self.board_offset_x
         board_y = y - self.board_offset_y
         if event == cv2.EVENT_LBUTTONDOWN:
@@ -111,10 +123,13 @@ class Renderer:
         return text.strip() or default
 
     def render(self):
-        """Draws one frame. Returns False once the user asked to quit (key or the window's own close button)."""
+        """Draws one frame. Returns False once the user asked to quit -- by key,
+        the window's own close button, or (once the game is over) the "Back to
+        Menu" button -- callers that care about which one it was check
+        self.wants_menu after the loop exits."""
         key = self._draw_frame()
         closed_by_user = cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1
-        if key in QUIT_KEYS or closed_by_user:
+        if self.wants_menu or key in QUIT_KEYS or closed_by_user:
             cv2.destroyAllWindows()
             return False
         return True
@@ -215,6 +230,7 @@ class Renderer:
 
     def _draw_game_over(self, canvas_img):
         if not self.game_engine.is_over:
+            self._back_to_menu_button = None
             return
         board_width = self.board.width * self.square_size
         board_height = self.board.height * self.square_size
@@ -226,6 +242,15 @@ class Renderer:
             GAME_OVER_COLOR,
             thickness=3,
         )
+
+        self._back_to_menu_button = Button(
+            x=self.board_offset_x + board_width // 2 - BACK_TO_MENU_BUTTON_WIDTH // 2,
+            y=self.board_offset_y + board_height // 2 + BACK_TO_MENU_BUTTON_Y_OFFSET,
+            width=BACK_TO_MENU_BUTTON_WIDTH,
+            height=BACK_TO_MENU_BUTTON_HEIGHT,
+            text=BACK_TO_MENU_TEXT,
+        )
+        self._back_to_menu_button.render(canvas_img)
 
     def _draw_disconnect_countdown(self, canvas_img):
         # Only present on network games (RemoteGameEngine) -- the local GameEngine

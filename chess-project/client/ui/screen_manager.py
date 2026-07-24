@@ -77,6 +77,14 @@ class ScreenManager:
                 screen_class, payload = self.active_screen.next_screen
                 self.active_screen = screen_class(self.bridge)
                 self.active_screen.on_enter(payload)
+                # A screen that just ran the legacy game loop (client.ui.
+                # game_runner.run_graphical_game) left the window destroyed
+                # behind it -- Renderer always calls cv2.destroyAllWindows()
+                # on exit, quit or "Back to Menu" alike. Recreating both here
+                # unconditionally is cheap and correct on every transition,
+                # game-loop-driven or not.
+                cv2.namedWindow(WINDOW_NAME)
+                cv2.setMouseCallback(WINDOW_NAME, self._on_mouse)
 
     def _blank_canvas(self) -> Img:
         canvas = Img()

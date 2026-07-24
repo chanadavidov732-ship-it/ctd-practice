@@ -107,8 +107,11 @@ class MatchmakingScreen(Screen):
         from client.ui.game_runner import run_graphical_game
 
         engine = self.bridge.build_remote_engine(payload)
-        run_graphical_game(self.bridge, engine)
-        self.should_quit = True
+        wants_menu = run_graphical_game(self.bridge, engine)
+        if wants_menu:
+            self._return_to_home()
+        else:
+            self.should_quit = True
 
     def _return_to_home(self) -> None:
         # Imported lazily: home_screen.py imports MatchmakingScreen at module

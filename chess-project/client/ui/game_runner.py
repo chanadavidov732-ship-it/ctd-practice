@@ -20,7 +20,10 @@ from client.network.game_bridge import apply_game_envelope
 from client.network.remote_game_engine import RemoteGameEngine
 
 
-def run_graphical_game(bridge: AppBridge, engine: RemoteGameEngine) -> None:
+def run_graphical_game(bridge: AppBridge, engine: RemoteGameEngine) -> bool:
+    """Blocks until the game window closes. Returns True if the user asked to
+    go back to the menu (the "Back to Menu" button shown once the game is
+    over), False if they quit outright."""
     # Imported lazily: only the graphical path needs cv2/Img, not every screen.
     from client.input.board_mapper import BoardMapper
     from client.input.controller import Controller
@@ -47,3 +50,5 @@ def run_graphical_game(bridge: AppBridge, engine: RemoteGameEngine) -> None:
         engine.advance_time(elapsed_ms)
         move_history.extend(engine.pop_newly_settled())
         running = renderer.render()
+
+    return renderer.wants_menu

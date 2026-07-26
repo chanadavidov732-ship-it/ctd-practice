@@ -4,7 +4,12 @@
       "Bash(python -c ' *)",
       "Bash(pkill -f \"server.main\")",
       "Bash(tail -50 /tmp/server_log2.txt 2>&1)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(python -m pytest tests/unit -q)",
+      "Bash(python -m pytest tests/ -k \"session or realtime\" -q)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('client/ui/renderer.py', encoding='utf-8'\\).read\\(\\)\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('client/config.py', encoding='utf-8'\\).read\\(\\)\\)\")",
+      "Bash(python -m pytest tests/ -q)"
     ]
   }
 }

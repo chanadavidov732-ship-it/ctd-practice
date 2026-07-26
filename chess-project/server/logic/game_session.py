@@ -127,7 +127,19 @@ class GameSession:
         try:
             while not self._finished:
                 await asyncio.sleep(TICK_INTERVAL_SECONDS)
+                locked_before = set(self.game_state.locked)
+                resting_before = set(self.game_state.resting)
+                airborne_before = set(self.game_state.airborne)
                 settled = self.engine.advance_time(TICK_MS)
+                # A position whose lock/rest/airborne state just cleared this tick must be
+                # broadcast even though nothing is "active" anymore, otherwise clients keep
+                # treating that square as locked forever (until some other move happens to
+                # trigger the next broadcast).
+                freed = (
+                    (locked_before - self.game_state.locked)
+                    or (resting_before - set(self.game_state.resting))
+                    or (airborne_before - set(self.game_state.airborne))
+                )
                 # Broadcast on every tick that has anything actually happening (a move/jump
                 # in flight, a piece resting, or something just settled) so clients can
                 # interpolate smooth motion; skip broadcasting while the board is fully idle.
@@ -136,6 +148,7 @@ class GameSession:
                     or self.game_state.pending_moves
                     or self.game_state.resting
                     or self.game_state.airborne
+                    or freed
                 )
                 if anything_active:
                     await self._broadcast(Envelope(type="game_update", payload=self._state_payload(settled)))

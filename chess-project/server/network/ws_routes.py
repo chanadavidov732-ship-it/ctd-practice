@@ -198,32 +198,11 @@ async def handle_jump(payload: dict, ctx: ConnectionContext) -> dict | None:
     return None
 
 
-HANDLERS = {
-    "echo": handle_echo,
-    "login": handle_login,
-    "register": handle_register,
-    "menu_select": handle_menu_select,
-    "create_room": handle_create_room,
-    "join_room": handle_join_room,
-    "cancel_room": handle_cancel_room,
-    "play": handle_play,
-    "cancel_play": handle_cancel_play,
-    "move": handle_move,
-    "jump": handle_jump,
-}
-
-RESPONSE_TYPE = {
-    "login": "login_result",
-    "register": "register_result",
-    "menu_select": "menu_ack",
-    "create_room": "room_state",
-    "cancel_room": "room_state",
-    "cancel_play": "play_cancelled",
-}
-
-
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    from server.config import HANDLERS, RESPONSE_TYPE  # deferred: server.config builds HANDLERS
+    # from this module's handler functions, so a top-level import here would be circular.
+
     await websocket.accept()
     client = f"{websocket.client.host}:{websocket.client.port}"
     logger.info("client connected: %s", client)

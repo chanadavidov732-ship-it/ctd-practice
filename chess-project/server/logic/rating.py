@@ -2,14 +2,15 @@ import asyncio
 
 from server.db.users_repo import update_rating
 
-K_FACTOR = 32
-
 
 def expected_score(rating_a: int, rating_b: int) -> float:
     return 1 / (1 + 10 ** ((rating_b - rating_a) / 400))
 
 
 def new_rating(rating_a: int, rating_b: int, score_a: float) -> int:
+    from server.config import K_FACTOR  # deferred: server.config imports ws_routes, which
+    # transitively reaches this module (via game_session) at import time -- circular otherwise.
+
     return round(rating_a + K_FACTOR * (score_a - expected_score(rating_a, rating_b)))
 
 

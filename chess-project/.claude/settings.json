@@ -15,7 +15,10 @@
       "Bash(ls -la \"C:\\\\Users\\\\user1\\\\Documents\\\\CTD\\\\git-practice\" 2>&1)",
       "Read(//c/Users/user1/Documents/CTD/git-practice/**)",
       "Bash(git ls-tree *)",
-      "Bash(python -m pytest --collect-only -q)"
+      "Bash(python -m pytest --collect-only -q)",
+      "Bash(git rm *)",
+      "Bash(rm client/config.py)",
+      "Bash(python -c \"import fastapi\")"
     ]
   }
 }

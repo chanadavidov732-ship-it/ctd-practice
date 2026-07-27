@@ -1,14 +1,9 @@
 import asyncio
 import secrets
-import string
 from dataclasses import dataclass
 from typing import Optional
 
 from fastapi import WebSocket
-
-MATCH_ID_ALPHABET = string.ascii_uppercase + string.digits
-MATCH_ID_LENGTH = 6
-RATING_RANGE = 100
 
 
 @dataclass
@@ -34,6 +29,9 @@ class Matchmaking:
         return None
 
     def find_opponent(self, rating: int, exclude_client_id: str) -> QueuedPlayer | None:
+        from server.config import RATING_RANGE  # deferred: server.config imports ws_routes,
+        # which transitively reaches this module at import time -- circular otherwise.
+
         for player in self._queue:
             if player.client_id == exclude_client_id:
                 continue
@@ -49,6 +47,9 @@ class Matchmaking:
 
     @staticmethod
     def generate_match_id() -> str:
+        from server.config import MATCH_ID_ALPHABET, MATCH_ID_LENGTH  # deferred: see the note
+        # in find_opponent above -- same circular-import reason.
+
         return "".join(secrets.choice(MATCH_ID_ALPHABET) for _ in range(MATCH_ID_LENGTH))
 
 

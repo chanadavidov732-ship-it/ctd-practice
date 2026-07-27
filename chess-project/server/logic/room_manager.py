@@ -1,9 +1,5 @@
 import secrets
-import string
 from dataclasses import dataclass
-
-ROOM_ID_ALPHABET = string.ascii_uppercase + string.digits
-ROOM_ID_LENGTH = 6
 
 
 @dataclass
@@ -65,6 +61,10 @@ class RoomManager:
         return self._rooms.get(room_id)
 
     def _generate_room_id(self) -> str:
+        from server.config import ROOM_ID_ALPHABET, ROOM_ID_LENGTH  # deferred: server.config
+        # imports ws_routes, which transitively reaches this module at import time --
+        # circular otherwise.
+
         while True:
             candidate = "".join(secrets.choice(ROOM_ID_ALPHABET) for _ in range(ROOM_ID_LENGTH))
             if candidate not in self._rooms:

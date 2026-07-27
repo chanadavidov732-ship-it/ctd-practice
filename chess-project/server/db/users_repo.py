@@ -1,28 +1,30 @@
 import hashlib
 import logging
-import pathlib
 import secrets
 import sqlite3
 
 logger = logging.getLogger("server")
 
-DB_PATH = pathlib.Path(__file__).parent / "chess.db"
-SCHEMA_PATH = pathlib.Path(__file__).parent / "schema.sql"
-
-PBKDF2_ITERATIONS = 200_000
-
 
 def _connect() -> sqlite3.Connection:
+    from server.config import DB_PATH  # deferred: server.config imports ws_routes, which
+
+    # transitively reaches this module (via rating -> game_session) at import time --
+    # circular otherwise.
     return sqlite3.connect(DB_PATH)
 
 
 def init_db() -> None:
+    from server.config import DB_PATH, SCHEMA_PATH  # deferred: see the note in _connect above.
+
     with _connect() as conn:
         conn.executescript(SCHEMA_PATH.read_text())
     logger.info("database initialized at %s", DB_PATH)
 
 
 def _hash_password(password: str, salt: bytes) -> str:
+    from server.config import PBKDF2_ITERATIONS  # deferred: see the note in _connect above.
+
     return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PBKDF2_ITERATIONS).hex()
 
 

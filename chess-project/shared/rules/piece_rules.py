@@ -31,17 +31,13 @@ def pawn_promotion_row(color, board_height):
     """שורת ההכתרה - הקצה הנגדי לשורת המוצא."""
     return 0 if color == "w" else board_height - 1
 
-MOVEMENT_VALIDATORS = {
-    "K": _validate_king,
-    "Q": _validate_queen,
-    "R": _validate_rook,
-    "B": _validate_bishop,
-    "N": _validate_knight,
-}
-
 
 def is_legal_move(piece_type, from_pos, to_pos):
     """בודק אך ורק את חוקיות הצורה של המהלך עבור סוג הכלי הנתון."""
+    from shared.config import MOVEMENT_VALIDATORS  # imported here: MOVEMENT_VALIDATORS lives
+    # in shared/config.py but is built from this module's validator functions, so a
+    # top-level import would be circular.
+
     dx = to_pos[0] - from_pos[0]
     dy = to_pos[1] - from_pos[1]
     validator = MOVEMENT_VALIDATORS.get(piece_type)

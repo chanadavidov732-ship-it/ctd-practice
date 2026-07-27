@@ -12,10 +12,6 @@ from shared.rules.move_validator import validate_jump, validate_move
 
 logger = logging.getLogger("server")
 
-TICK_MS = 100
-TICK_INTERVAL_SECONDS = TICK_MS / 1000
-DISCONNECT_RESIGN_SECONDS = 20
-
 
 @dataclass
 class PlayerSlot:
@@ -103,6 +99,10 @@ class GameSession:
         self._disconnect_task = asyncio.create_task(self._auto_resign_countdown(player))
 
     async def _auto_resign_countdown(self, disconnected_player: PlayerSlot) -> None:
+        from server.config import DISCONNECT_RESIGN_SECONDS  # deferred: server.config imports
+        # ws_routes (for HANDLERS), which reaches this module at import time -- a top-level
+        # import here would be circular.
+
         try:
             for remaining in range(DISCONNECT_RESIGN_SECONDS, 0, -1):
                 if self._finished:
@@ -124,6 +124,9 @@ class GameSession:
             logger.exception("session %s: auto-resign countdown failed", self.session_id)
 
     async def _tick_loop(self) -> None:
+        from server.config import TICK_INTERVAL_SECONDS, TICK_MS  # deferred: see the note in
+        # _auto_resign_countdown above -- same circular-import reason.
+
         try:
             while not self._finished:
                 await asyncio.sleep(TICK_INTERVAL_SECONDS)

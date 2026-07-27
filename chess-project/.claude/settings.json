@@ -9,7 +9,13 @@
       "Bash(python -m pytest tests/ -k \"session or realtime\" -q)",
       "Bash(python -c \"import ast; ast.parse\\(open\\('client/ui/renderer.py', encoding='utf-8'\\).read\\(\\)\\)\")",
       "Bash(python -c \"import ast; ast.parse\\(open\\('client/config.py', encoding='utf-8'\\).read\\(\\)\\)\")",
-      "Bash(python -m pytest tests/ -q)"
+      "Bash(python -m pytest tests/ -q)",
+      "Bash(cd \"c:\\\\Users\\\\user1\\\\Documents\\\\CTD\\\\git-practice\\\\chess-project\" && git rev-parse --show-toplevel 2>&1 && echo \"---find---\" && find / -maxdepth 6 -iname \"CLIENT_SERVER_PLAN.md\" 2>/dev/null)",
+      "Read(//c//**)",
+      "Bash(ls -la \"C:\\\\Users\\\\user1\\\\Documents\\\\CTD\\\\git-practice\" 2>&1)",
+      "Read(//c/Users/user1/Documents/CTD/git-practice/**)",
+      "Bash(git ls-tree *)",
+      "Bash(python -m pytest --collect-only -q)"
     ]
   }
 }

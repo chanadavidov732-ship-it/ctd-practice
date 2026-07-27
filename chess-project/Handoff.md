@@ -1,6 +1,8 @@
 # Kung Fu Chess — Handoff Document
 
 > This document is meant to let a new developer (or a fresh Claude conversation) continue this project **without** access to the previous chat history. It summarizes purpose, architecture, decisions, current status, and constraints.
+>
+> **This is a full rewrite** (previous version described the pre-client/server `game-chess/` single-folder layout, which no longer exists). Everything below reflects the repo as it actually is today.
 
 ---
 
@@ -8,313 +10,335 @@
 
 **Kung Fu Chess** is a **real-time** chess variant, unlike classic turn-based chess:
 
-- **No turns** — both players can move pieces at any moment (subject to a business constraint added later — see section 7).
+- **No turns** — both players can move pieces at any moment; only a piece's own lock/rest state blocks it (see section 7, decision #4).
 - Every move has a **duration** computed from distance. During that time the piece is "in motion" and unavailable for further action.
 - **Capture** only happens when a move actually arrives (Atomic Update), never while a piece is "in flight."
 - There is no theoretical "check"/"checkmate" — the game ends **immediately** when a king is actually captured.
-- A **"Jump"** mechanic was also added — a piece can "jump" and stay on its logical cell; if an enemy moving piece arrives at that cell while it's airborne, the jumping piece captures it (Air Capture).
+- A **"Jump"** mechanic — a piece can "jump" and stay on its logical cell; if an enemy moving piece arrives at that cell while it's airborne, the jumping piece captures it (Air Capture).
 
-The project was built through ten-plus incremental development iterations (see section 8), starting from a text-only board and ending with movement rules, real-time mechanics, captures, game-over, promotion, and jumps.
+The project started as a text-only, single-process board (click/jump/wait scripted via stdin) and has since grown two more layers on top of the same rule engine, never changing it:
+
+1. **A graphical board** (`client/ui/renderer.py` + `client/ui/sprite_manager.py`, OpenCV/`Img`-based) — reused, unmodified in its core drawing logic, by both the local single-machine mode and the networked mode.
+2. **A client/server multiplayer layer** (FastAPI + WebSockets) — login/register with a persistent ELO rating, matchmaking (rating-range queue) or private rooms (room-ID based, with spectators), real-time game sessions authoritative on the server, and a graphical wrapper-screen flow (Login → Home → Room/Matchmaking → game board → back to Home) that replaced the original textual menu as the default entry point.
 
 ---
 
 ## 2. Architecture
 
-The project follows strict separation of concerns, inspired by Clean Architecture. **Core principle**: every layer knows only what it must, and nothing more.
+The project follows strict separation of concerns. **Core principle**: every layer knows only what it must, and nothing more.
 
-| Layer | Responsibility | Must NOT know about |
-|---|---|---|
-| **Model** | Raw board/piece/position/game-state | Rendering, input, time |
-| **Rules** | Move legality (shape, blocking, capture) | How to draw, how to actually move pieces, time |
-| **Realtime** | Logical clock, active motions, jumps, Atomic Update | Move legality (that's Rules' job) |
-| **Engine** | Orchestrates the overall flow: move request → checks → trigger motion | Specific piece rules, drawing, pixel mapping |
-| **Input** | Click → logical position mapping, selection state | Move legality |
-| **IO Options** | Textual board read/write | Anything beyond text |
-| **Text Test** | Running textual scripts (click/jump/wait/print) | Business logic |
+| Layer | Folder | Responsibility | Must NOT know about |
+|---|---|---|---|
+| **Model** | `shared/model/` | Raw board/piece/position/game-state | Rendering, input, time, networking |
+| **Rules** | `shared/rules/` | Move legality (shape, blocking, capture, ownership) | How to draw, how to actually move pieces, time |
+| **Realtime** | `shared/realtime/` | Logical clock, active motions, jumps, Atomic Update | Move legality (that's Rules' job) |
+| **Engine** | `shared/engine/` | Orchestrates the overall flow: move request → checks → trigger motion | Specific piece rules, drawing, pixel mapping, networking |
+| **Protocol** | `shared/protocol.py` | The one message envelope shape client and server both speak | Any specific message's meaning |
+| **Server logic** | `server/logic/`, `server/auth/`, `server/db/` | Auth, rating, matchmaking, rooms, authoritative game sessions | Rendering, input |
+| **Event bus** | `bus/` | Decouples server subsystems (room/matchmaking/connection) via pub/sub | Business rules of the events it carries |
+| **Server network** | `server/network/`, `server/engine_adapter/` | WebSocket routing, per-room broadcast fan-out, `shared/` composition root | Auth/DB details, rating math |
+| **Client network** | `client/network/` | WebSocket connection, request/response + broadcast correlation, hands a started game off to the UI thread | Rendering, business rules |
+| **Client UI** | `client/ui/` | Graphical wrapper screens + the game board renderer | Network protocol details (screens only see `AppBridge`'s already-parsed events) |
+| **Client input** | `client/input/` | Click → logical position mapping, selection state | Move legality |
+| **Client CLI / text_test** | `client/cli/`, `client/text_test/` | Legacy textual flow, kept alive only for scripted regression tests | Nothing production-relevant depends on it anymore |
 
-**Key principle:** `Rule Engine` **never** moves pieces or removes enemies — it only returns a result code (`OK`, `BLOCKED`, `ILLEGAL_SHAPE`, etc.). The actual board mutation happens **only** in `RealTimeArbiter`, and only at the moment of arrival (Atomic Update) — not when the move request is sent.
+**Key principle, unchanged since the very first iteration:** `shared/rules/rule_engine.py` **never** moves pieces or removes enemies — it only returns a result code (`OK`, `BLOCKED`, `ILLEGAL_SHAPE`, etc.). The actual board mutation happens **only** in `RealTimeArbiter`, and only at the moment of arrival (Atomic Update).
+
+**Key principle, new since the client/server work:** the server is the **single source of truth** for game state. The client (`shared/rules/move_validator.py`) does its own legality pre-check before sending a move/jump, purely so the local board doesn't have to wait a round-trip to reject an obviously illegal click — but the server always re-validates independently (`server/logic/game_session.py::handle_move/handle_jump`, using the exact same `shared/rules` code) and its result is what actually gets broadcast. The client never mutates its board from a local guess; it only ever applies snapshots the server sends (`RemoteGameEngine.apply_snapshot`).
 
 ---
 
 ## 3. Technologies
 
 - **Python 3.13**
-- **pytest** for unit testing (`pytest-9.1.1`)
-- No external dependencies declared in any manifest — but as of the graphical UI work (see below), `opencv-python` (`cv2`) and `numpy` are actually imported and required to run `ui/app-ui.py`. Still not formalized in a `requirements.txt`/`pyproject.toml` — open item, see section 10.
-- I/O is done via `stdin`/`stdout` (Text IO), suited for running as `python app.py < script.kfc`
-- **A graphical UI now exists** (`ui/renderer.py`, `ui/sprite_manager.py`, `ui/app-ui.py`) — OpenCV/`Img`-based, built on top of everything in this document without changing move legality, capture, or timing rules. This document (`Handoff.md`) still covers only the logic layers (`model`/`rules`/`realtime`/`engine`/`input`/`io_options`/`text_test`); the graphical layer is documented separately and in full in **`ui/UI_DESIGN.md`** — read that file for anything UI-related. A few small, purely additive changes the UI work made to the logic layers are called out inline below (search this document for "UI work").
+- **pytest** (`pytest.ini` at repo root: `pythonpath = .`, `testpaths = tests`) — 117 tests passing as of this writing, all under `tests/unit/`.
+- **Server** (`server/requirements.txt`): `fastapi`, `uvicorn[standard]`. Plus stdlib `sqlite3`, `hashlib`/`secrets` (PBKDF2-HMAC-SHA256 password hashing, 200,000 iterations, random per-user salt — real hashing, not plaintext).
+- **Client** (`client/requirements.txt`): `websockets`. Plus `opencv-python` (`cv2`) and `numpy` for the graphical layer — **still not declared in any requirements file**, same open item as before the reorg (see section 10).
+- I/O for the legacy text-mode path is via `stdin`/`stdout`, unchanged from the original design.
+- Networking: plain WebSocket at `ws://127.0.0.1:8000/ws` (see `client/cli/login.py::SERVER_URI`), one FastAPI route (`server/network/ws_routes.py`), one message envelope shape for everything (`shared/protocol.py::Envelope`).
 
 ---
 
 ## 4. Project Structure
 
-The repo root previously also had a sibling `graphics/` folder (sprite/animation assets for the future graphical UI); it has since been **removed** — its contents now live inside `game-chess/ui/` (see section 4a). The root also has a `Handoff · MD.docx` (an exported mirror of this same document — keep this `.md` file as the source of truth and treat the `.docx` as stale) and a leftover `__pycache__/game.cpython-*.pyc` inside `game-chess/` — a compiled trace of a pre-refactor `game.py`/`test_game.py` pair with no source files left; harmless, safe to ignore or delete.
-
 ```
-game-chess/                    # note the hyphen — not "game_chess"
-├── app.py                      # [UI work] TEXT-MODE entry point only — reads board, calls game_setup.build_game, runs run_commands. No import of ui/ at all.
-├── game_setup.py                # [UI work] shared composition-root factory: build_game(grid) -> (board, game_state, arbiter, game_engine, board_mapper, controller). Used by both app.py and ui/app-ui.py so neither duplicates the wiring.
-├── model/
-│   ├── position.py              # namedtuple Position (col, row)
-│   ├── piece.py                 # token_color(), token_type() - token parsing
-│   ├── board.py                 # Board: grid, get/set_piece, is_inside, height/width
-│   └── game_state.py            # GameState: clock, pending_moves, locked, airborne, resting, [UI work] resting_duration
-├── rules/
-│   ├── piece_rules.py           # MOVEMENT_VALIDATORS, is_legal_move, is_sliding_piece,
-│   │                             # is_legal_pawn_move/capture, pawn_start_row, pawn_promotion_row
-│   ├── piece_registry.py        # PIECE_TYPES, COLORS - single source of truth for which pieces exist
-│   └── rule_engine.py           # check_move() - the central legality-check function
-├── realtime/
-│   ├── motion.py                # calculate_duration() - Chebyshev distance, DEFAULT_SPEED, JUMP_DURATION_MS,
-│   │                             # LONG_REST_MS, SHORT_REST_MS
-│   └── realtime_arbiter.py      # RealTimeArbiter: start_motion, start_jump, advance_time,
-│                                 # _settle_due_moves (Atomic Update + air capture), _land_due_jumps,
-│                                 # _release_due_rests
-├── engine/
-│   └── game_engine.py           # GameEngine: request_move, request_jump, advance_time, is_over, is_locked
-├── input/
-│   ├── board_mapper.py          # BoardMapper: pixel_to_cell()
-│   └── controller.py            # Controller: handle_click, handle_jump, selection state management
-├── io_options/                  # (renamed from "io" to avoid clashing with the stdlib module)
-│   ├── board_parser.py          # read_board, validate_board, VALID_TOKENS
-│   └── board_printer.py         # print_board()
-├── text_test/
-│   ├── script_parser.py         # parse_command() - click/jump/wait/print board
-│   └── script_runner.py         # run_commands() - runs a script from stdin
-├── ui/                          # moved/renamed from the old root-level graphics/ folder - see section 4a
-│   ├── img.py                    # Img: OpenCV (cv2) + numpy helper - read/resize, draw_on (alpha-blend), put_text, show - never modified by the UI work
-│   ├── renderer.py               # [UI work] fully implemented - see ui/UI_DESIGN.md (was an empty stub)
-│   ├── sprite_manager.py         # [UI work] fully implemented - see ui/UI_DESIGN.md (was an empty stub)
-│   ├── app-ui.py                 # [UI work] the graphical entry point - `python ui/app-ui.py`, see ui/UI_DESIGN.md §8
-│   └── game_snapshot/            # sprite/animation assets (moved from graphics/, see section 4a for what changed)
-└── test/
-    └── unit/
-        ├── test_board.py
-        ├── test_board_mapper.py
-        ├── test_board_parser.py
-        ├── test_board_printer.py
-        ├── test_game_engine.py
-        ├── test_game_over.py
-        ├── test_motion.py
-        ├── test_movement_over_time.py
-        ├── test_realtime_interactions.py
-        ├── test_rule_engine.py
-        └── test_rules.py
-```
-
-**Correction vs. earlier drafts of this document**: `view/`, `integration/`, and `scripts/` do **not exist yet at all** — not even as empty stub folders. Anyone starting the graphical-UI iteration needs to create `game-chess/view/` from scratch.
-
-### 4a. `game-chess/ui/` — sprite/animation assets + graphical UI (moved in from the old root-level `graphics/`)
-
-**[UI work — supersedes most of this section]** Everything below describing `renderer.py`/`sprite_manager.py` as empty and "nothing wired up" is now **stale** — the graphical UI was fully built afterward. It is documented in full, including every deviation from the original plan, in **`ui/UI_DESIGN.md`** — read that file, not the paragraphs below, for how the renderer/sprite manager actually work today. The asset-migration history below (what changed vs. the old `graphics/` folder) is still accurate and kept for context.
-
-The root-level `graphics/` sibling folder described in earlier drafts of this document is **gone** — it was moved inside `game-chess/` and renamed to `ui/`. Along with the move, the asset set was trimmed and code stubs were added:
-
-```
-game-chess/ui/
-├── img.py                       # Img: OpenCV (cv2) + numpy helper — read/resize, draw_on (alpha-blend), put_text, show
-│                                 # (evolved from the old graphics/py/img.py demo; now also imports numpy)
-├── renderer.py                  # currently an EMPTY file — not yet implemented
-├── sprite_manager.py            # currently an EMPTY file — not yet implemented
-└── game_snapshot/                # sprite/animation assets (moved from graphics/)
-    ├── board.png                 # board background image
-    └── pieces_mine/               # the only piece-skin set kept — the old graphics/pieces2/ set was dropped
-        └── <color><type>/         # e.g. wK, bQ... now color+type order, matching board tokens ("wR"),
-            │                      # unlike the old graphics/pieces1/<type><color>/ (e.g. QW, KB) — order was flipped
-            └── states/
-                ├── idle/
-                │   ├── config.json   # {"physics": {...}, "graphics": {"frames_per_sec", "is_loop"}}
-                │   └── sprites/1.png..5.png
-                ├── move/
-                ├── jump/
-                ├── short_rest/
-                └── long_rest/
-```
-
-Each state's `config.json` still looks like:
-```json
-{
-  "physics": {"speed_m_per_sec": 1.5, "next_state_when_finished": "long_rest"},
-  "graphics": {"frames_per_sec": 12, "is_loop": true}
-}
+chess-project/
+├── Handoff.md                    # this file
+├── pytest.ini
+├── bus/                           # event bus (pub/sub) decoupling server subsystems
+│   ├── event_bus.py                # EventBus: subscribe(type, handler), async publish(event) — sequential, no error isolation
+│   ├── events.py                   # ClientConnected, RoomCreated, PlayerJoinedRoom, ViewerJoinedRoom, PlayerQueued, MatchFound, MatchTimeout
+│   ├── listeners/                  # the actual event-handling logic
+│   │   ├── connection_listener.py    # on_client_connected — currently logs only, no behavior (extension point)
+│   │   ├── matchmaking_listener.py   # on_player_queued, _expire_after_timeout — MATCH_TIMEOUT_SECONDS=60
+│   │   └── room_listener.py          # on_room_created, on_player_joined_room, on_viewer_joined_room
+│   └── subscribers/                # registration glue (register_*_listeners()), called once from server/main.py
+│       ├── connection_subscriber.py
+│       ├── matchmaking_subscriber.py
+│       └── room_subscriber.py
+├── shared/                        # the ORIGINAL logic layers, unmodified in behavior, moved here in the reorg
+│   ├── protocol.py                 # Envelope(type, payload, request_id, ts) — the one message shape used everywhere
+│   ├── model/
+│   │   ├── position.py               # Position namedtuple (col,row) — most code still uses raw tuples
+│   │   ├── piece.py                  # token_color(), token_type()
+│   │   ├── board.py                  # Board: grid, get/set_piece, is_inside, height/width
+│   │   ├── game_state.py             # GameState: clock, pending_moves, locked, resting, resting_duration, airborne
+│   │   └── standard_setup.py         # STANDARD_START_GRID — the 8x8 starting position
+│   ├── rules/
+│   │   ├── piece_rules.py            # MOVEMENT_VALIDATORS, is_legal_move, pawn_start_row/promotion_row/is_legal_pawn_*
+│   │   ├── piece_registry.py         # PIECE_TYPES, COLORS
+│   │   ├── rule_engine.py            # check_move() — the central legality function (OK/OUT_OF_BOUNDS/ILLEGAL_SHAPE/BLOCKED/FRIENDLY_FIRE)
+│   │   └── move_validator.py         # [new, server-flow only] validate_move/validate_jump — bounds+ownership pre-check, used by both server's authoritative check and RemoteGameEngine's client-side pre-check
+│   ├── realtime/
+│   │   ├── motion.py                 # calculate_duration() (Chebyshev), DEFAULT_SPEED=1000, JUMP_DURATION_MS=1000, LONG_REST_MS=1000, SHORT_REST_MS=500
+│   │   └── realtime_arbiter.py       # RealTimeArbiter: start_motion, start_jump, advance_time (settle/land/release, in that order)
+│   └── engine/
+│       └── game_engine.py            # GameEngine: request_move, request_jump, advance_time, is_over, is_locked
+├── server/
+│   ├── main.py                     # FastAPI app; registers all bus listeners + init_db() at import time; uvicorn.run under __main__
+│   ├── auth/
+│   │   └── auth.py                   # async login(username,password)/register(username,password) -> {"success","message"[,"rating"]}
+│   ├── db/
+│   │   ├── schema.sql                 # users(id, username UNIQUE, password_hash, salt, rating DEFAULT 1200)
+│   │   ├── users_repo.py              # init_db, create_user, verify_user, update_rating — PBKDF2, 200k iterations
+│   │   └── chess.db                   # sqlite file (created by init_db, listed in .gitignore)
+│   ├── logic/
+│   │   ├── rating.py                  # ELO: K_FACTOR=32, expected_score, new_rating, apply_match_result (no draw support — score_a is always 1)
+│   │   ├── matchmaking.py             # Matchmaking: enqueue/find_opponent(±100 rating)/remove, QueuedPlayer, 6-char match IDs
+│   │   ├── room_manager.py            # RoomManager: create_room/join_room/leave_room, 6-char room IDs, players[0]=white/[1]=black, 3rd+ joiner=viewer
+│   │   └── game_session.py            # GameSession: 100ms tick loop, DISCONNECT_RESIGN_SECONDS=20, broadcasts game_update/game_over/disconnect_countdown
+│   ├── engine_adapter/
+│   │   └── adapter.py                 # create_engine() -> (board, game_state, arbiter, engine) — the one place server builds shared/ objects
+│   └── network/
+│       ├── ws_routes.py               # the single /ws route; HANDLERS dict (11 message types) + RESPONSE_TYPE remap; disconnect cleanup
+│       ├── connection_registry.py     # room_id -> {websocket: client_id}, for broadcast fan-out
+│       └── room_broadcaster.py        # broadcast_room_state(room_id, exclude_client_id)
+└── client/
+    ├── config.py                   # renderer/UI constants (colors, sizes, key codes) shared across client/ui files
+    ├── game_setup.py                # build_game(grid) -> (board, game_state, arbiter, game_engine, board_mapper, controller) — LOCAL/hotseat composition root
+    ├── main.py                      # graphical entry point: starts the network thread (AppBridge.serve()), runs ScreenManager(bridge, LoginScreen)
+    ├── network/
+    │   ├── connection.py              # ServerConnection: connect/send/receive/close over websockets
+    │   ├── app_bridge.py              # AppBridge — the network-thread <-> main-thread bridge every graphical screen uses (see section 6b)
+    │   ├── game_bridge.py             # GameBridge (legacy, used only by client/cli/*.py), build_remote_engine, apply_game_envelope, pump_game_messages
+    │   └── remote_game_engine.py      # RemoteGameEngine — Renderer/Controller-compatible stand-in for GameEngine, server is authoritative
+    ├── input/
+    │   ├── board_mapper.py            # BoardMapper: pixel_to_cell() (square_size=100)
+    │   └── controller.py              # Controller: handle_click/handle_jump, selection state
+    ├── io_options/
+    │   ├── board_parser.py            # read_board/validate_board (used by the local-hotseat text-board-input path)
+    │   └── board_printer.py           # print_board()
+    ├── cli/                         # LEGACY textual flow — not reachable from client/main.py anymore, kept alive only for client/text_test/script_runner.py
+    │   ├── login.py                    # SERVER_URI = "ws://127.0.0.1:8000/ws", do_login()
+    │   ├── home.py, play.py, room.py   # textual menu/matchmaking/room flows
+    ├── text_test/
+    │   ├── script_parser.py           # parse_command(): click/jump/wait/"print board"
+    │   └── script_runner.py           # run_commands() — stdin-driven scripted local games, never real time.sleep()
+    └── ui/
+        ├── UI_DESIGN.md              # renderer/sprite internals for the LOCAL board — predates the client/server split; its own folder-structure section is stale, but the rendering/animation content is still accurate (see note below)
+        ├── img.py                    # Img: OpenCV/numpy helper — read/resize, draw_on, put_text, show
+        ├── renderer.py                # Renderer — draws the board+pieces+panels+game-over overlay; shared by local and networked play alike
+        ├── sprite_manager.py          # SpriteManager.determine_state() — idle/move/jump/short_rest/long_rest, reads GameState fields only
+        ├── widgets.py                 # Button/TextInput/Label/ErrorText — generic Img-based widgets, used by every wrapper screen
+        ├── screen_manager.py          # ScreenManager — the graphical wrapper-screen main loop (see section 6b)
+        ├── game_runner.py             # run_graphical_game(bridge, engine) — hands off from a wrapper screen into the Renderer game loop
+        ├── app_ui.py                  # LOCAL/hotseat graphical entry point: `python -m client.ui.app_ui` — no networking at all, uses game_setup.build_game
+        ├── screens/
+        │   ├── base_screen.py          # Screen base class: on_enter/update/render/handle_click/handle_key, next_screen, should_quit
+        │   ├── login_screen.py, home_screen.py, room_screen.py, matchmaking_screen.py
+        └── game_snapshot/            # sprite/animation assets (board.png + pieces_mine/<color><type>/states/{idle,move,jump,short_rest,long_rest}/)
 ```
 
-**What's changed vs. the old `graphics/` folder** (still accurate, historical):
-- The assets now live **inside** `game-chess/` (under `ui/game_snapshot/`) instead of as a root sibling — no more crossing the package boundary to reach them.
-- Only one piece-skin set remains (`pieces_mine/`, the old `pieces1/`); the old `pieces2/` set was removed. The per-piece folder naming was also flipped from `<type><color>` (e.g. `QW`) to `<color><type>` (e.g. `wQ`), now matching the board token format used everywhere else (section 12) — don't assume the old naming from earlier drafts of this doc.
-- `speed_m_per_sec` (in the `config.json` files) is still a **different unit and a different number** than `DEFAULT_SPEED` (ms/square) in `realtime/motion.py`, and **still unreconciled** — `ui/renderer.py` never ended up needing it (animation frame timing uses `frames_per_sec` instead), so this was never revisited. Still an open item, see section 10.
-
-**[UI work — no longer true, see `ui/UI_DESIGN.md` for the current reality]** The following were true when this section was first written and are **not true anymore**: `renderer.py`/`sprite_manager.py` being empty placeholders; OpenCV/`numpy` not being required to run anything; nothing in `game-chess/` reading from `ui/`; there being no concept of "which visual state a piece is in." All of that now exists — `SpriteManager.determine_state(pos, game_state)` maps `game_state.locked`/`airborne`/`resting` (no new `GameState` field was needed for this) to one of `idle`/`move`/`jump`/`long_rest`/`short_rest`, entirely inside the UI layer.
+**Note on `.claude/CLIENT_SERVER_PLAN.md`**: the detailed, iteration-by-iteration client/server spec (auth/matchmaking/rooms/graphical-screens design, decisions, and per-iteration acceptance criteria — sections 5/6 below only summarize its conclusions) currently lives at `.claude/CLIENT_SERVER_PLAN.md`, **untracked**, while `CLIENT_SERVER_PLAN.md` at the repo root shows as deleted in `git status` (unstaged). This predates this document's rewrite — it's flagged here as an open item (section 10), not something this rewrite fixed.
 
 ### Files critical to understanding the architecture (read these first)
-1. **`engine/game_engine.py`** — the operational heart: shows the full decision sequence for every move/jump request.
-2. **`realtime/realtime_arbiter.py`** — the only place that actually mutates the board; critical for understanding Atomic Update, capture, promotion, and air-capture.
-3. **`rules/rule_engine.py`** — all legality rules (including the more complex pawn logic) are centralized here.
-4. **`model/game_state.py`** — all the transient logical state (locked, pending_moves, airborne) — small but central to all timing.
+
+1. **`shared/engine/game_engine.py`** — the operational heart of move/jump legality and game-over detection.
+2. **`shared/realtime/realtime_arbiter.py`** — the only place that actually mutates the board; critical for Atomic Update, capture, promotion, air-capture.
+3. **`server/logic/game_session.py`** — the authoritative per-game loop on the server: how a `GameEngine` becomes a live multiplayer session.
+4. **`client/network/app_bridge.py`** — the single mechanism every graphical wrapper screen uses to talk to the network thread; understand this before touching any screen.
+5. **`client/ui/game_runner.py`** — the hand-off point between "a screen waiting for a game to start" and "the actual board window running."
+6. **`.claude/CLIENT_SERVER_PLAN.md`** — full design rationale and iteration history for everything client/server (see note above on its current location).
 
 ---
 
 ## 5. Components and Modules — Brief Description
 
-### Model
-- **`Position`**: `namedtuple("Position", ["col","row"])` — in practice most of the code still uses raw `(col, row)` tuples, not always the formal `Position`.
-- **`Board`**: wraps `grid` (list of lists of strings), exposes `get_piece`, `set_piece`, `is_inside`, `height`, `width`.
-- **`GameState`**: `clock` (int, ms), `pending_moves` (list of dict: from/to/token/completion_time/**duration** — see below), `locked` (set of positions), `airborne` (dict: pos → completion_time), `resting` (dict: pos → completion_time; cooldown mechanic — see Realtime section below and section 7), **`resting_duration`** (dict: pos → original total ms, i.e. `LONG_REST_MS` or `SHORT_REST_MS` — **[UI work]** added so the UI can compute an exact remaining-time fraction without guessing; see section 7 decision #13).
-- **`piece.py`**: `token_color(token)`, `token_type(token)` — parses the `"wR"`/`"bK"`/`"."` format.
+### `shared/` (unchanged logic, moved from the old `game-chess/model|rules|realtime|engine/`)
+- **`Board`**: wraps `grid`, exposes `get_piece`, `set_piece`, `is_inside`, `height`, `width`.
+- **`GameState`**: `clock`, `pending_moves` (from/to/token/completion_time/duration), `locked` (set), `resting`/`resting_duration` (dicts), `airborne` (dict).
+- **`piece.py`**: `token_color(token)`, `token_type(token)` — the sole place the `"{color}{type}"` token format is parsed.
+- **`rule_engine.py`**: `check_move(board, piece_type, piece_color, from_pos, to_pos)` — pure legality, no mutation, no ownership check (that's `move_validator`'s job).
+- **`move_validator.py`** *(new)*: `validate_move`/`validate_jump` — bounds + "is this your piece" checks, then delegates to `rule_engine`. Used identically on both sides of the network: `RemoteGameEngine.request_move` (client-side optimistic pre-check) and `server/logic/game_session.py::handle_move` (server-side authoritative check) call the exact same function — no duplicated legality logic between client and server.
+- **`realtime_arbiter.py`**: `RealTimeArbiter.advance_time(ms)` — settles due moves (Atomic Update + air-capture-takes-priority + auto-promotion), lands due jumps (→ `SHORT_REST_MS`), releases due rests, in that fixed order.
+- **`game_engine.py`**: `GameEngine.request_move/request_jump` gate on `is_over` then `is_locked(pos)` (locked OR resting) then rule legality; `advance_time` sets `is_over=True` the moment any settled move's `captured_token` is a king.
 
-### Rules
-- **`piece_rules.py`**: pure "movement shape" logic (dx,dy only, no board access). Contains:
-  - `MOVEMENT_VALIDATORS` dict for the regular pieces (K/Q/R/B/N).
-  - `is_legal_pawn_move(dx,dy,color,from_row,board_height)` and `is_legal_pawn_capture(dx,dy,color)` — pawns are handled separately from the generic path because they have two different patterns (move/capture) and depend on color and position.
-  - `pawn_start_row(color, board_height)` = `height-2` for white, `1` for black.
-  - `pawn_promotion_row(color, board_height)` = `0` for white, `height-1` for black.
-  - `SLIDING_PIECES = {"Q","R","B"}` and `is_sliding_piece()`.
-- **`piece_registry.py`**: `PIECE_TYPES`, `COLORS` — created to centralize "which pieces exist" in one place (groundwork for future support of custom pieces, see section 10).
-- **`rule_engine.py`**: `check_move(board, piece_type, piece_color, from_pos, to_pos)` returns only a result code — `OK`/`OUT_OF_BOUNDS`/`ILLEGAL_SHAPE`/`BLOCKED`/`FRIENDLY_FIRE`. **Does not** mutate the board. Has a dedicated path for pawns (`_check_pawn_move`) that also checks path-blocking for the double move.
+### `bus/` — event bus decoupling server subsystems
+- **`EventBus`**: `subscribe(EventClass, handler)`, `async publish(event)` — iterates subscribers in registration order, awaits coroutine handlers; no error isolation (one handler raising stops the rest for that publish call — worth knowing if debugging a "downstream broadcast never arrived" bug).
+- Events: `ClientConnected` (published, currently logged only — no functional subscriber yet), `RoomCreated`/`PlayerJoinedRoom`/`ViewerJoinedRoom` (room lifecycle → `bus/listeners/room_listener.py`, which also decides when a room's 2nd player triggers `game_session_manager.start_for_room`), `PlayerQueued`/`MatchFound`/`MatchTimeout` (matchmaking lifecycle → `bus/listeners/matchmaking_listener.py`).
 
-### Realtime
-- **`motion.py`**: `calculate_duration(from_pos, to_pos, speed=DEFAULT_SPEED)` — **Chebyshev distance** (`max(|dx|,|dy|)`), **not** Euclidean! `DEFAULT_SPEED = 1000` (ms per square). `JUMP_DURATION_MS = 1000`. **New**: `LONG_REST_MS = 1000` (cooldown after a regular move settles) and `SHORT_REST_MS = 500` (cooldown after a jump lands safely) — see below.
-- **`realtime_arbiter.py`**: `RealTimeArbiter` holds references to `board` and `game_state`.
-  - `start_motion(from_pos, to_pos, token, completion_time, duration)` — registers a move in `pending_moves` (**[UI work]** `duration` is a new parameter, stored on the entry alongside `completion_time`; the caller, `GameEngine.request_move`, already computed it — this just exposes it instead of only implicitly encoding it in `completion_time`, so the UI can derive an animation progress fraction without recomputing `calculate_duration` itself), adds to `locked`.
-  - `start_jump(pos)` — registers `airborne[pos] = clock + JUMP_DURATION_MS`.
-  - `advance_time(ms)` — advances `clock`, calls `_settle_due_moves()`, then `_land_due_jumps()`, then `_release_due_rests()` (in that order!).
-  - `_settle_due_moves()` — **the most important function in the project**. For each move whose time has come: first checks for **air capture** (if the destination is in `airborne`, the arriving enemy is captured and the jumping piece stays put), otherwise performs the regular Atomic Update (including pawn promotion check) and sets `resting[move["to"]] = clock + LONG_REST_MS` (plus, **[UI work]**, `resting_duration[move["to"]] = LONG_REST_MS`) — the landing square enters a cooldown before it can be selected/moved again. Returns the list of settled moves, each including `captured_token`.
-  - `_land_due_jumps()` — clears pieces that finished jumping without being captured; sets `resting[pos] = clock + SHORT_REST_MS` for a piece that lands safely (plus, **[UI work]**, `resting_duration[pos] = SHORT_REST_MS`) — jump cooldown is shorter than a regular-move cooldown.
-  - `_release_due_rests()` — clears `resting` entries whose completion time has passed, mirroring `_land_due_jumps`'s pattern for `airborne` (plus, **[UI work]**, clears the matching `resting_duration` entry).
+### `server/` — auth, rating, matchmaking, rooms, authoritative sessions
+- **`auth.py`**: `login`/`register` — real PBKDF2-HMAC-SHA256 hashing (200k iterations, random salt) via `users_repo.py`, run off the event loop with `asyncio.to_thread`. No username/password format validation beyond "not already taken."
+- **`rating.py`**: standard ELO, `K_FACTOR=32`. **No draw support** — `apply_match_result` always takes `score_a=1` (a strict winner/loser), called once per finished game from `game_session.py::_finish_game`.
+- **`matchmaking.py`**: in-memory queue, `find_opponent` matches within `RATING_RANGE=100`; the player already in queue becomes white, the newly-queued one black.
+- **`room_manager.py`**: in-memory rooms keyed by a 6-char generated ID; first 2 joiners are `players` (joiner 0 = white), everyone after is a `viewer`.
+- **`game_session.py`**: `GameSession` — one per active game (room- or matchmaking-based), owns a fresh `shared/` engine via `engine_adapter.create_engine()`, ticks every 100ms, only broadcasts `game_update` when something is actually active (not on fully-idle ticks), auto-resigns a disconnected player after a 20s countdown (`disconnect_countdown` broadcasts, once/second).
+- **`ws_routes.py`**: one `/ws` route. `HANDLERS` = `echo, login, register, menu_select, create_room, join_room, cancel_room, play, cancel_play, move, jump`. **Important asymmetry to know before touching client network code**: most handlers return a `dict` payload that the route wraps into a correlated response (matching `request_id`); a few (`join_room` on success, `play` on success) instead send their own envelope *directly*, with **no `request_id`** — these arrive client-side as an uncorrelated broadcast, not a request/response pair. Any new screen/handler that sends a request and expects a specific reply shape must check the actual handler code, not assume symmetry (see section 7, new decision on this).
 
-### Engine
-- **`GameEngine`**: `request_move(from_pos, to_pos)` checks in order: `is_over?` → `is_locked(from_pos)` (**per-piece only — the global lock was removed, see section 7, decision #4; note this checks only the *mover*, `from_pos` — the target `to_pos` is never checked here, which is exactly why capturing a locked/resting piece has always been legal, see decision #13**) → `rule_engine.check_move()` → if `OK`, triggers `arbiter.start_motion`. `request_jump(pos)` checks: `is_over?` → piece not `locked` → piece not already `airborne` → a piece exists on the cell → triggers `arbiter.start_jump`. `advance_time(ms)` calls `arbiter.advance_time`, and for each settled move checks if `captured_token` is a king (`token_type == "K"`) → if so, `is_over = True`; **[UI work]** now ends with `return settled` (previously computed but discarded — the UI's move-history feature reads this).  `is_locked(pos)` — a query used by the Controller **and now also by `request_move` itself**; returns `True` if `pos` is in `locked` OR in `resting`, so a piece that just arrived (or just landed a jump) reads as unavailable during its cooldown even though it's not in `game_state.locked`.
+### `client/network/` — the WebSocket layer
+- **`ServerConnection`**: thin `connect`/`send`/`receive`/`close` wrapper over `websockets`.
+- **`RemoteGameEngine`**: same public surface as the local `GameEngine` (`request_move`, `request_jump`, `advance_time`, `is_over`, `is_locked`) so `Controller`/`Renderer` don't know or care whether they're driving a local or networked game. Never mutates board/state from a local guess — `request_move`/`request_jump` only pre-validate (via `shared/rules/move_validator`) and forward to the server; `apply_snapshot` (driven by `game_update` envelopes) is the only thing that ever actually changes `self.board`/`self.game_state`.
+- **`AppBridge`** *(the graphical wrapper-screen network layer, see section 6b)* vs. **`GameBridge`** *(older, narrower — only used by the legacy `client/cli/*.py` flow that `client/text_test/script_runner.py` still depends on)*. Don't confuse the two: `AppBridge` is what every current screen (`Login`/`Home`/`Room`/`Matchmaking`) actually uses.
 
-### Input
-- **`BoardMapper`**: `pixel_to_cell(x,y)` based on `square_size=100`, returns `None` if outside the board.
-- **`Controller`**: `handle_click(x,y)` — manages the `selected` state. `handle_jump(x,y)` — calls `game_engine.request_jump` directly. **[UI work — fixed, see section 7 decision #13]** `is_locked` is checked only where selection actually happens — picking a piece up (`self.selected is None`) or switching selection to another friendly piece — **not** on the move/capture-destination branch. Previously `is_locked(pos)` was checked unconditionally at the top of `handle_click`, which incorrectly also blocked clicking a locked/resting *enemy* piece as a capture target (even though `GameEngine.request_move` was always willing to allow it, since it only ever checks the mover's lock state).
+### `client/ui/` — graphical board + wrapper screens
+- **`Renderer`**: draws board/pieces/animations/rest-bars/move-history panels/player names/game-over overlay + (since the "back to menu" work) a "Back to Menu" button once `game_engine.is_over`. Opens one `cv2` window (`WINDOW_NAME = "Image"`, imported from here by `screen_manager.py` so the wrapper-screen flow and the in-game board never open two separate windows). `render()` returns `False` on any stop (quit key, window closed, or the menu button); callers that need to tell the difference check `self.wants_menu` afterward.
+- **`ScreenManager`**: the wrapper-screen main loop (Login/Home/Room/Matchmaking) — see section 6b.
+- **`game_runner.run_graphical_game(bridge, engine)`**: builds `BoardMapper`+`Controller`+`Renderer` from a `RemoteGameEngine` and blocks the calling (main) thread in a frame loop until the game window closes, draining `AppBridge.poll_events()` each frame to apply `game_update`/`game_over`/`disconnect_countdown`/`*_rejected` envelopes to the engine. Returns `True` if the user clicked "Back to Menu", `False` if they quit outright.
+- **`screens/*.py`**: `LoginScreen` → `HomeScreen` → `RoomScreen` or `MatchmakingScreen` → (on `game_started`) `game_runner.run_graphical_game` → back to `HomeScreen` (if "Back to Menu") or process end (if quit). All screens follow the same `on_enter(payload)`/`update()`/`render(canvas)`/`handle_click(x,y)`/`handle_key(key)` contract (`base_screen.py::Screen`).
 
-### IO Options
-- **`board_parser.py`**: `read_board()` reads lines from stdin until `"Commands:"`. `validate_board()` checks squareness and valid tokens (`VALID_TOKENS`, currently built from `piece_registry`).
-- **`board_printer.py`**: `print_board(board)` — simple printing, `" ".join(row)` per row.
+### `client/input/`
+- **`BoardMapper.pixel_to_cell(x,y)`**, **`Controller.handle_click/handle_jump`** — unchanged from the original design; works identically against a local `GameEngine` or a `RemoteGameEngine`.
 
-### Text Test
-- **`script_parser.py`**: `parse_command(line)` recognizes `click x y` / `jump x y` / `wait ms` / `print board`.
-- **`script_runner.py`**: `run_commands(controller, game_engine, board)` — a loop that reads lines from stdin and triggers the matching action. **`wait` only advances the logical clock — never a real `time.sleep()`.**
+### `client/cli/` + `client/text_test/`
+- The original textual login/home/play/room flow. **No longer reachable from `client/main.py`** (which now always opens the graphical `LoginScreen` first) — kept alive solely because `client/text_test/script_runner.py` still drives scripted regression scenarios through it. Don't delete without checking that dependency first.
 
 ---
 
 ## 6. Data Flow (End-to-End)
 
-**Regular move (click → click):**
-1. User/script sends `click x1 y1` → `Controller.handle_click` → `BoardMapper.pixel_to_cell` → if there's a piece on the cell and it's not locked → `selected = {pos, color}`.
-2. Second `click x2 y2` → if same color as the selected piece (and not locked/resting), replace the selection. Otherwise → `GameEngine.request_move(from_pos, to_pos)` — **note**: this branch does *not* check whether the *destination* cell is locked/resting (see section 7 decision #13) — a locked/resting enemy piece is a perfectly legal capture target; only the *mover*'s own lock state (step 3) matters.
-3. `GameEngine` checks `is_over`, checks `is_locked(from_pos)` (**per-piece only** — the earlier global lock was removed, see section 7, decision #4), calls `rule_engine.check_move`.
-4. If `OK` → `arbiter.start_motion` → registered in `pending_moves`, `locked.add(from_pos)`.
-5. **The logical board has NOT changed yet!** — only when a sufficient `wait ms` arrives, `advance_time` advances `clock`, and `_settle_due_moves` performs the actual Atomic Update (including checking promotion / air capture / king capture).
-6. **New**: the moment a regular move settles, the destination cell also enters a **rest/cooldown** (`resting[to] = clock + LONG_REST_MS`) — during this window `GameEngine.is_locked(to)` returns `True`, so the piece cannot be selected or moved again even though `game_state.locked` no longer contains it. The cooldown clears itself the next time `advance_time` runs past its completion time (`_release_due_rests`).
-7. `print board` at any point prints the current actual state of `board.grid` (not including "in-flight" moves).
+### 6a. Core move/jump logic (unchanged since before the client/server work, applies identically to local and networked play)
 
-**Jump:**
-1. `jump x y` → `Controller.handle_jump` → `GameEngine.request_jump(pos)` → if valid → `arbiter.start_jump(pos)` → `airborne[pos] = clock + 1000`.
-2. If, while the piece is "airborne," an enemy move arrives whose destination is that cell — in `_settle_due_moves`, `move["to"] in airborne` is checked **before** the regular Atomic Update → if true, the arriving enemy is removed from its origin, the jumping piece stays put.
-3. If no enemy arrived by the end of the jump — `_land_due_jumps` simply removes the entry from `airborne`; the board doesn't change (the piece was logically there the whole time). **New**: landing safely also starts a (shorter) rest — `resting[pos] = clock + SHORT_REST_MS`.
+**Regular move (click → click):**
+1. `Controller.handle_click` → `BoardMapper.pixel_to_cell` → if a piece is there and not locked → `selected = {pos, color}`.
+2. Second click → same-color reselect, or `GameEngine.request_move(from_pos, to_pos)` (destination lock/rest state is irrelevant here — only the *mover*'s state matters; a locked/resting enemy piece is always a legal capture target).
+3. `GameEngine` checks `is_over` → `is_locked(from_pos)` → `rule_engine`/`move_validator` legality.
+4. If `OK` → `arbiter.start_motion` → registered in `pending_moves`, `locked.add(from_pos)`. **The board has not changed yet.**
+5. Only once enough time has passed (`advance_time`) does `_settle_due_moves` perform the actual Atomic Update (promotion / air-capture / king-capture check), and start the destination's rest/cooldown (`LONG_REST_MS`).
+
+**Jump:** `Controller.handle_jump` → `GameEngine.request_jump(pos)` → `arbiter.start_jump(pos)` → `airborne[pos] = clock + JUMP_DURATION_MS`. If an enemy move's destination lands on that cell while airborne, `_settle_due_moves` treats it as an air-capture (checked *before* the regular Atomic Update) instead of a normal capture. Landing safely starts a shorter rest (`SHORT_REST_MS`).
+
+### 6b. Networked flow: connect → play → back to menu
+
+1. **`client/main.py`** starts a background daemon thread running `asyncio.run(bridge.serve())` (`AppBridge`), then blocks the main thread in `ScreenManager(bridge, LoginScreen).run()`.
+2. **`LoginScreen.on_enter`** calls `bridge.connect(SERVER_URI)`. Success/failure/each subsequent server reply surfaces as an `AppEvent` (`CONNECTED`/`CONNECTION_LOST`/`RESPONSE`/`BROADCAST`) via `bridge.poll_events()`, polled once per frame from each screen's `update()`. `RESPONSE` events are the ones whose `Envelope.request_id` matches the bridge's single in-flight `_pending_request_id` (set by `send_request`); everything else — including some *successful* replies that the server happens to send directly without a `request_id` (see the `ws_routes.py` asymmetry noted in section 5) — arrives as `BROADCAST`. **Screens must not assume a reply to their own request always comes back as `RESPONSE`** — check the actual handler in `ws_routes.py` for how a given message type replies.
+3. Successful login/register → `HomeScreen` (username + rating carried as payload, never re-fetched). `HomeScreen`'s Play/Room buttons send `menu_select` (a client-side navigation ack only — it does **not** actually queue for a match or create/join a room) and move to `MatchmakingScreen`/`RoomScreen`.
+4. **`MatchmakingScreen.on_enter`** immediately sends `play`; **`RoomScreen`** waits for a Create/Join click before sending `create_room`/`join_room`. Both screens funnel every subsequent bridge event through the same pattern: state-specific handling, **except** `game_started`/`match_timeout` (Matchmaking) which are always checked first, unconditionally, so a match found in the instant after the user clicks Cancel is still honored — mirrors the `resolved` flag the legacy `client/cli/play.py::_wait_for_match` already used.
+5. On `game_started`, the screen calls `bridge.build_remote_engine(payload)` (constructs a `RemoteGameEngine` whose `send_move`/`send_jump` schedule onto `AppBridge`'s own captured event loop — **not** `asyncio.get_running_loop()`, since this runs on the main thread, which has no running loop of its own) and then blocks in `game_runner.run_graphical_game(bridge, engine)`.
+6. When that returns, the screen either transitions back to `HomeScreen` (same `username`/`rating` payload, **no re-login** — the WebSocket connection and `AppBridge` are untouched) if the user clicked "Back to Menu", or sets `self.should_quit = True` (ends `ScreenManager.run()` entirely) if they quit outright. Either way, `ScreenManager` re-creates the `cv2` window + mouse callback on the next screen transition, since `Renderer` always calls `cv2.destroyAllWindows()` on its own way out.
+7. Server side, in parallel: `GameSession` ticks every 100ms, broadcasting `game_update` only when something is actually active, `game_over` once a king is captured (updates both players' ELO via `rating.apply_match_result`), and `disconnect_countdown` if either player's socket drops (20s auto-resign).
 
 ---
 
 ## 7. Important Architectural/Business Decisions Made
 
-1. **`io` → `io_options`**: the folder was renamed because `io` clashes with a Python stdlib module.
-2. **`app.py` sits at the project root**, not inside `text_test/` — it's the general (text-mode) entry point, not a test-only tool. **[UI work]** Once the graphical UI existed, `app.py` briefly *was* the GUI entry point (iterations 1–12); it was then split back out — `app.py` returned to being the text-mode entry point exactly as described here, and the GUI moved to its own `ui/app-ui.py`, with the shared composition wiring factored into `game_setup.py::build_game(grid)` so neither entry point duplicates it. See `ui/UI_DESIGN.md` §8.
-3. **`is_locked` as a query in Controller**: moved from a check that originally lived in the monolithic legacy code, into `GameEngine.is_locked(pos)`, queried by `Controller`. **[UI work — refined, see decision #13]** Originally checked unconditionally at the very start of `handle_click`, before selection vs. move/capture was even distinguished; now checked only where it actually applies — picking up a piece, or switching to another friendly one — never on the move/capture-destination branch.
-4. **Global Lock — REMOVED.** A previous iteration had `GameEngine.request_move` checking `if self.game_state.locked:` (non-empty at all, not just whether the specific `from_pos` is locked), meaning only one active move could be in flight on the entire board at any given moment, regardless of piece/color. This deviated from the original description of "both players move simultaneously" and was left as an open question (see the former TODO in section 10). **It has now been reversed**: `request_move` checks only `self.is_locked(from_pos)` — i.e. whether *this specific square* is `locked` (mid-motion) or `resting` (post-arrival cooldown). Any number of pieces, on either side, can now be in motion at the same time; the only thing that blocks a piece is its own lock/rest state. `GameState.locked`/`GameState.resting` and `RealTimeArbiter` were not changed — they were already per-position; only the gate in `GameEngine.request_move` was removed. Covered by `test_second_piece_can_move_while_another_is_in_motion` in `test/unit/test_game_engine.py` (renamed and inverted from the old `test_second_piece_cannot_move_while_another_is_in_motion`, which asserted the opposite behavior).
-5. **Move duration = Chebyshev, not Euclidean**: fixed after a failing test (a queen moving diagonally) revealed that `calculate_duration` needed `max(|dx|,|dy|)` instead of `sqrt(dx²+dy²)` — matching real chess rules (diagonal movement costs the same as straight movement).
-6. **`DEFAULT_SPEED = 1000`** (ms per square) — changed from the original `200`, after external tests (input/expected output) revealed this was the expected value.
-7. **Pawn start row is board-height-dependent, not fixed**: `pawn_start_row(color, height) = height-2` for white, `1` for black. **Fixed twice** — it was originally `height-1`/`0` (wrong — that's the back-rank row, not the pawn row), then corrected to `height-2`/`1`.
-8. **Promotion** (`pawn_promotion_row`): `0` for white, `height-1` for black — correct from the start, this is the actual edge row.
-9. **Air capture takes priority over regular settlement**: in `_settle_due_moves`, if `move["to"]` is in `airborne`, a special capture occurs (the attacking piece is removed, the jumping piece stays) **before** the regular Atomic Update check. This ordering is **critical** and was deliberate — see the design note below.
-10. **Jumping was never checked against the (now-removed) global lock** — `request_jump` only checks whether *that specific piece* is locked/rested/already-airborne, not the global state, so this was already per-piece before decision #4 was reversed. **Resolved**: `request_jump` now calls `self.is_locked(pos)` (the same helper `request_move` uses) instead of checking `pos in self.game_state.locked` directly, so a `resting` piece can no longer jump either. Covered by `test_resting_piece_cannot_jump` in `test/unit/test_game_engine.py`.
-11. **Pawns are always handled via a separate path** in `rule_engine.check_move` (`if piece_type=="P": return _check_pawn_move(...)`) rather than through the generic `MOVEMENT_VALIDATORS` — because they have asymmetric rules (color-dependence, move≠capture) that don't fit the simple dx/dy model used by the other pieces.
-12. **New — Rest/cooldown after arrival, replacing the earlier "no cooldown" rule**: a previous iteration explicitly established (and tested, via a now-deleted test named `test_piece_can_move_again_immediately_after_arrival_no_cooldown`) that a piece could be redirected the instant it arrived. That has been **reversed**: `GameState.resting` (dict: pos → completion_time) now tracks a post-arrival cooldown, checked by `GameEngine.is_locked`. Two different durations apply: `LONG_REST_MS = 1000` after a regular move settles (`_settle_due_moves`), and the shorter `SHORT_REST_MS = 500` after a jump lands safely (`_land_due_jumps`). Resting is per-position, not global — it does not block other pieces elsewhere on the board (matching `locked`, which itself became purely per-position once the global lock was removed — decision #4).
-13. **[UI work] A locked/resting piece can always be captured — only picking one up was ever meant to be blocked.** Confirmed directly against `GameEngine`/`RealTimeArbiter` (bypassing `Controller` entirely): `request_move` only ever checks `is_locked(from_pos)` — the *mover* — never `to_pos`; `rule_engine.check_move` doesn't look at lock/rest state at all; `_settle_due_moves` just captures whatever `board.get_piece(to)` currently holds. This was true from the very first iteration that introduced `resting`/`locked`. What was actually broken was reachability through the UI: `Controller.handle_click` (see decision #3) blocked *any* click on a locked/resting cell, including a capture click aimed at the enemy's locked/resting piece, before `request_move` was ever called. Fixed by scoping the `is_locked` check to the two selection branches only (see decision #3) — no change to `rule_engine.py`, `game_engine.py`, or `realtime_arbiter.py` was needed or made.
-14. **[UI work] Small additive exposures added to logic-layer code to support the UI, none changing existing behavior**: `start_motion(..., duration)` — the already-computed `duration` is now passed through and stored on the `pending_moves` entry instead of only being implicitly encoded in `completion_time`; `GameState.resting_duration` — a new dict recording which of `LONG_REST_MS`/`SHORT_REST_MS` a given `resting` entry actually used, populated/cleared in lockstep with `resting` itself; `GameEngine.advance_time` now `return settled` instead of discarding it. All three exist purely so the UI (`ui/UI_DESIGN.md` §11a) can read data the engine already computes, without recomputing any of it or duplicating business logic in the UI layer. Confirmed via the full existing test suite passing unchanged after each.
+*(Decisions #1–14 below predate the client/server work and concern only the core game logic in `shared/` — folder paths updated from the old `game-chess/model|rules|realtime|engine/` to their current `shared/` location; nothing about the decisions themselves changed in the move.)*
+
+1. **`io` → `io_options`**: renamed because `io` clashes with a Python stdlib module.
+2. **Entry points split by concern**: `client/ui/app_ui.py` is the local/hotseat graphical entry (no networking); `client/main.py` is the networked graphical entry (default since the client/server work); `client/cli/*.py` is the legacy textual flow, reachable today only via `client/text_test/script_runner.py`. `client/game_setup.py::build_game(grid)` is the shared local-mode composition root so `app_ui.py` doesn't duplicate wiring.
+3. **`is_locked` as a query, checked only where it applies**: `GameEngine.is_locked(pos)`, queried by `Controller` only when picking up a piece or switching selection — never on the move/capture-destination branch (a locked/resting enemy piece is always a legal capture target, decision #13 below).
+4. **Global Lock — removed, per-piece only.** `GameEngine.request_move`/`request_jump` gate on `self.is_locked(from_pos)` (that specific square's `locked`/`resting` state), not on any board-wide lock. Any number of pieces on either side can be mid-motion simultaneously.
+5. **Move duration = Chebyshev distance** (`max(|dx|,|dy|)`), not Euclidean — matches real chess (diagonal costs the same as straight).
+6. **`DEFAULT_SPEED = 1000`** ms/square.
+7. **Pawn start row is board-height-dependent**: `height-2` for white, `1` for black (not the back rank).
+8. **Promotion row**: `0` for white, `height-1` for black.
+9. **Air capture takes priority over regular settlement** in `_settle_due_moves` — checked before the normal Atomic Update.
+10. **Jump legality uses the same `is_locked(pos)` as regular moves** — a resting piece can't jump either.
+11. **Pawns are handled via a separate path** in `rule_engine.check_move` (asymmetric move≠capture, color-dependent) rather than through `MOVEMENT_VALIDATORS`.
+12. **Rest/cooldown after arrival**: `GameState.resting`, checked by `GameEngine.is_locked`. `LONG_REST_MS=1000` after a regular move settles, `SHORT_REST_MS=500` after a jump lands safely. Per-position, not global.
+13. **A locked/resting piece can always be *captured* — only *picking one up* was ever meant to be blocked.** `request_move` only ever checks the mover's lock state, never the target's; `Controller.handle_click` was the actual (fixed) bug source, not the engine.
+14. **Small additive exposures for the UI, no behavior change**: `start_motion(..., duration)` stored on the `pending_moves` entry; `GameState.resting_duration`; `GameEngine.advance_time` returning `settled`.
+
+**New decisions from the client/server build (iterations 0–16 of `.claude/CLIENT_SERVER_PLAN.md`):**
+
+15. **Server framework: FastAPI + plain WebSockets**, one `/ws` route, one `Envelope(type, payload, request_id, ts)` shape for every message in both directions — no per-message-type endpoint proliferation. `ts` is defined on `Envelope` but never actually populated by any current code (vestigial).
+16. **DB access: raw `sqlite3`, no ORM** — `server/db/users_repo.py`, password hashing done with real PBKDF2 (not plaintext), off the event loop via `asyncio.to_thread`.
+17. **Server-side subsystem decoupling via an event bus** (`bus/`), not direct cross-module calls — e.g. `room_manager`/`matchmaking` never call `game_session_manager` directly; a `bus` listener does, in response to a published event. Trade-off: no error isolation between handlers of the same event (one raising stops the rest).
+18. **Client-side move validation is optimistic, server is authoritative** — both sides call the *same* `shared/rules/move_validator` functions rather than duplicating legality logic; the server's answer, not the client's guess, is what gets broadcast.
+19. **Request/response correlation is not fully symmetric** — most handlers reply through the normal `request_id`-correlated path, but a couple (`join_room` success, `play` success) send their own envelope directly with no `request_id`, arriving client-side as an uncorrelated broadcast instead. Discovered while building `RoomScreen`/`MatchmakingScreen` (iterations 14–15) by probing the live server rather than assuming symmetry — **any new screen must verify this per message type, not assume it.**
+20. **`AppBridge` generalizes the older `GameBridge` pattern** (queue-based cross-thread handoff) to every graphical wrapper screen, not just the game-start handoff — but `GameBridge` itself was kept, not replaced, since `client/cli/*.py` (needed by `client/text_test/script_runner.py`) still uses it directly.
+21. **The legacy game loop (`_run_graphical_game`, originally in `client/main.py` before the graphical Login/Home rewrite) was resurrected as `client/ui/game_runner.py::run_graphical_game`**, adapted to pull game messages from `AppBridge.poll_events()` per frame instead of a separate `asyncio` task reading the connection directly — `AppBridge` already owns the one continuous receive loop on the network thread, so a second concurrent reader on the same connection was never an option once wrapper screens (not just the CLI) needed the connection too.
+22. **"Back to Menu" is a button drawn inside the existing game window** (`Renderer`, once `is_over`), not a separate screen — the one deliberate, pre-approved touch to `renderer.py` in the whole 11–16 iteration batch. Returning to `HomeScreen` afterward reuses the same connection (no re-login). A consequence not anticipated by the original design doc: since `Renderer` always destroys its `cv2` window on any exit (quit or menu), `ScreenManager` has to explicitly recreate the window + mouse callback on every screen transition, or the resumed wrapper screen would render into a dead/uncallbacked window.
+23. **Viewers who join a room mid-game stay on the room wait screen in "viewer" status** — no live spectator board rendering exists yet, in the graphical flow or the legacy CLI one. Explicitly deferred, not a regression (see section 9).
 
 ---
 
 ## 8. What Has Already Been Completed
 
-Based on the 11 iterations done so far:
+**Core logic** (`shared/`, unchanged since before the client/server work):
+1. ✅ Model (`Board`, `GameState`, `piece.py`), full legality rules (K/Q/R/B/N + full pawn rules incl. promotion), real-time arbiter (Atomic Update, logical `wait`, never real `sleep`), captures + game-over on king capture, jump + air-capture, per-piece lock/rest (no global lock).
 
-1. ✅ Text-only board, read/print, basic validation.
-2. ✅ Clean Model (`Board`, `GameState`, `piece.py`).
-3. ✅ Clicks (`BoardMapper`, `Controller`) with Selection/Deselection management.
-4. ✅ First movement rule (Rook), then all the other regular pieces (K/Q/B/N).
-5. ✅ Full command pipeline: `Controller → GameEngine → RuleEngine`.
-6. ✅ Real-time: `RealTimeArbiter`, Atomic Update, logical `wait` (never real `sleep`).
-7. ✅ Captures (including `FRIENDLY_FIRE`/`BLOCKED`) and game-over on king capture (`is_over`, further moves afterward are ignored).
-8. ✅ Full pawn rules: single/double move, diagonal capture, path-blocking check, promotion to queen on reaching the last row.
-9. ~~Global lock — only one move active on the whole board at a time (section 7.4).~~ **Removed** — see item 13 below and section 7 #4.
-10. ✅ Advanced integration tests: enemy collision, invalid premoves, landing on a friendly piece, conflicts.
-11. ✅ Jump mechanic and air capture — including full wiring in `Controller`, `script_parser`, `script_runner`.
-12. ✅ Rest/cooldown after arrival (`GameState.resting`, section 7 #12) — a regular move's destination and a safely-landed jump's cell are now unavailable for a further beat (`LONG_REST_MS`/`SHORT_REST_MS`) via `GameEngine.is_locked`.
-13. ✅ **Global lock removed** — `GameEngine.request_move` now gates only on `self.is_locked(from_pos)` (per-piece: `locked` or `resting`) instead of on `game_state.locked` being non-empty. Any number of pieces can be mid-motion across the board simultaneously; only a piece that is itself mid-motion or resting is blocked. See section 7 #4 (updated) for the full rationale and the test that locks in the new behavior.
-14. ✅ **[UI work] Full graphical UI** — `ui/renderer.py` + `ui/sprite_manager.py` (previously empty stubs, section 4a) are now fully implemented and wired to a dedicated entry point (`ui/app-ui.py`), on top of the logic layers described in this document without changing any of them beyond the small additive exposures in section 7 #14. Covers: board+piece rendering with full idle/move/jump/long_rest/short_rest animation, click/double-click input, move-sliding and jump-lift animation, a rest countdown bar, move history panels, player-name entry, and game-over display. Fully described, including every deviation from the original plan and every bug found along the way, in **`ui/UI_DESIGN.md`** — not duplicated here.
+**Client/server layer** (`.claude/CLIENT_SERVER_PLAN.md` iterations 0–16, all implemented):
+2. ✅ WebSocket infra, `Envelope` protocol, auth with real password hashing + persistent ELO rating.
+3. ✅ Matchmaking (rating-range queue, 60s timeout) and Rooms (create/join by ID, player/viewer roles, cancel).
+4. ✅ Authoritative server-side `GameSession` (100ms tick, disconnect auto-resign with countdown, ELO update on finish).
+5. ✅ `RemoteGameEngine` + the existing `Renderer`/`Controller` reused unmodified for networked play.
+6. ✅ Full graphical wrapper-screen flow replacing the textual menu as the default entry: `LoginScreen` → `HomeScreen` → `RoomScreen`/`MatchmakingScreen` → game board → "Back to Menu" → `HomeScreen` again (no re-login). `client/main.py` defaults to this graphical flow; `client/cli/*.py` untouched, still used by `client/text_test/script_runner.py`.
 
-Current test coverage: 65 unit tests passing (`pytest`), spread across all logic layers (the UI layer has no automated tests — verified manually/headlessly per iteration, see `ui/UI_DESIGN.md`).
+**Test coverage**: 117 unit tests passing (`pytest`), spanning `shared/` logic, `client/input/`, and (unlike the pre-reorg state) the graphical wrapper screens themselves (`test_app_bridge.py`, `test_base_screen.py`, `test_home_screen.py`, `test_login_screen.py`, `test_placeholder_screens.py` — the last covers `RoomScreen`/`MatchmakingScreen`'s `on_enter`/`render` via a stub bridge, `test_widgets.py`). The board-rendering/animation internals of `Renderer`/`SpriteManager` still have no automated tests — verified manually per iteration, same as before the reorg.
 
 ---
 
 ## 9. What Is Still Missing
 
-- ~~Actual graphical UI~~ **[UI work] Done** — see section 8 item 14 and `ui/UI_DESIGN.md`. That document's own §14 lists what's still open *within* the UI specifically (mainly: `speed_m_per_sec` reconciliation, no formal `cv2`/`numpy` dependency declaration, no legal-move highlighting/illegal-move feedback in the graphical UI).
-- **`.kfc` script files** under `scripts/` — not actually written during the conversation (mentioned in the structure but not created); the folder itself doesn't exist either.
-- **`integration/`** — no folder, no comprehensive end-to-end integration tests exist (only unit tests exist, even if some are "lightly integration-style").
-- **En Passant** — not implemented (not required by any iteration so far).
-- **Castling** — not implemented.
-- **Support for non-textual/binary board representation** — discussed as a future option (see section 10) but not implemented.
-- **Support for user-defined custom games (custom piece rules)** — discussed but not implemented (see section 10).
-- **More detailed error reporting in text mode** — currently `Controller`/`GameEngine` simply "stay silent" (`return`) when a move is illegal, with no error message to the user. A feedback channel may be needed in the future.
+- **Iteration 17 of `.claude/CLIENT_SERVER_PLAN.md`** — full manual end-to-end pass (Login → Home → Play/Room → game → Game Over → Home, with no textual fallback anywhere), confirming the disconnect/auto-resign countdown still renders correctly through the new graphical entry path, and a regression check that `client/text_test/script_runner.py`'s CLI-driven scenarios are unaffected. Not yet done as of this document.
+- **Live spectator board rendering** for viewers who join a room mid-game — currently they just sit on the room wait screen in "viewer" status (both in the legacy CLI and the current graphical flow). Explicitly flagged as a future iteration (18+) in `.claude/CLIENT_SERVER_PLAN.md` §5, not a bug.
+- **No draw/stalemate concept anywhere** — `rating.apply_match_result` only ever takes a strict winner (`score_a=1`); there is no path that produces a draw, in the rules layer or the rating layer.
+- **`opencv-python`/`numpy` still not declared in any requirements file** — same open item as before the reorg, now arguably more pressing since `client/ui/renderer.py`, `game_runner.py`, and every `client/ui/screens/*.py` all depend on them, not just `img.py`.
+- **`CLIENT_SERVER_PLAN.md` missing from the repo root** (see the note in section 4) — the only copy is an untracked file under `.claude/`.
+- **En Passant, Castling** — not implemented (never required by any iteration so far, in either the old or new plan).
+- **No formal error-feedback channel** for illegal moves in the local/text-mode path — `Controller`/`GameEngine` still just silently `return`.
 
 ---
 
-## 10. TODO List (explicit and implied from the conversation)
+## 10. TODO List
 
-- [x] ~~Implement `renderer.py` + `sprite_manager.py` under `game-chess/ui/` (currently empty stubs) with a graphical UI (step 10 of the spec), building on the sprite/animation assets already staged in `ui/game_snapshot/` (section 4a).~~ **Resolved** — see section 8 item 14 / `ui/UI_DESIGN.md`.
-- [x] ~~Decide how per-piece animation state (idle/move/jump/short_rest/long_rest, driven by `ui/game_snapshot/**/config.json`) is modeled — new Model state vs. a new layer — without letting `RealTimeArbiter`/`GameEngine` become visual-aware.~~ **Resolved**: entirely inside `SpriteManager.determine_state`, reading existing `GameState` fields — no new model state was needed. See `ui/UI_DESIGN.md` §4.
-- [ ] Reconcile `speed_m_per_sec` (in the `ui/game_snapshot/` configs) against `DEFAULT_SPEED`/`calculate_duration` (ms/square, Chebyshev) in `realtime/motion.py` — decide whether/how they map to each other. **Still open** — the built renderer ended up not needing `speed_m_per_sec` at all (uses `frames_per_sec` for animation timing instead), so this was never actually resolved, just avoided.
-- [ ] Decide whether OpenCV (`cv2`, used by `ui/img.py`, and now required to run `ui/app-ui.py`) becomes an actual declared project dependency (e.g. `requirements.txt`), or gets replaced. **Still open** — `cv2`/`numpy` are used directly in `renderer.py` too now (not just `img.py`), making this more pressing than before.
-- [ ] Actually write `.kfc` files under `scripts/` (board_parsing, click_to_move, invalid_moves, capture, game_over).
-- [x] ~~Finally confirm against the grader/spec: is the "global lock — only one move on the board" rule permanent, or an interim stage that will later be replaced with full concurrency (per-piece lock only)?~~ **Resolved**: the global lock was removed (section 7 #4) — `request_move` now uses per-piece `is_locked` only, so any number of pieces can move concurrently; only lock/rest state on that specific square blocks a move.
-- [x] ~~Decide and document: should jumping (`request_jump`) also use `is_locked(pos)` (i.e. also respect `resting`, not just `locked`)?~~ **Resolved**: `request_jump` now uses `self.is_locked(pos)`, so a resting piece can no longer jump — see section 7 #10.
-- [ ] When adding custom piece types (future) — avoid adding more hardcoded `if piece_type == "X"` branches; instead build a Data-Driven Registry (see section 11).
-- [ ] When moving to a binary representation (future) — make sure `token_color`/`token_type` remain the sole transition point between the raw format and the rest of the system (see section 11).
-- [ ] Consider adding a feedback/error channel to `Controller`/`GameEngine` instead of full silence on illegal moves.
-- [ ] Check test coverage for `view/`, `integration/`, En Passant, Castling — currently none exists at all.
+- [ ] Do the iteration-17 manual end-to-end pass + CLI regression check described in section 9.
+- [ ] Decide whether to restore `CLIENT_SERVER_PLAN.md` at the repo root (from `.claude/CLIENT_SERVER_PLAN.md`) and commit it, or deliberately keep planning docs under `.claude/` going forward.
+- [ ] Declare `opencv-python`/`numpy` as real dependencies somewhere (`client/requirements.txt` currently only lists `websockets`).
+- [ ] Reconcile `speed_m_per_sec` (in `client/ui/game_snapshot/**/config.json`) against `shared/realtime/motion.py`'s `DEFAULT_SPEED`/Chebyshev distance — still unreconciled; the renderer ended up using `frames_per_sec` for animation timing instead, so this was never actually forced.
+- [ ] If a live spectator board is ever needed (section 9), decide whether it reuses `Renderer` in a read-only mode or gets its own component.
+- [ ] `Matchmaking.generate_match_id()` and `RoomManager`'s room-ID generator use the same alphabet/length pattern but are separate, duplicated constants (`server/logic/matchmaking.py` vs `server/logic/room_manager.py`) — could be unified if a third ID-generating use case ever appears; not worth touching for its own sake.
+- [ ] `bus/events.py`'s `ClientConnected` currently has no functional subscriber (logging only) — a natural extension point if presence-tracking or similar is ever needed, but nothing depends on it today.
+- [ ] When adding custom piece types (future) — avoid hardcoded `if piece_type == "X"` branches; extend `shared/rules/piece_registry.py` into a real data-driven registry instead.
+- [ ] Consider adding a feedback/error channel to `Controller`/`GameEngine` instead of silent `return` on illegal local-mode moves.
+- [ ] Test coverage gap: `Renderer`/`SpriteManager` rendering/animation logic, En Passant, Castling — none exists.
 
 ---
 
 ## 11. Constraints and Principles That Must Not Be Violated
 
-1. **`Rule Engine` never moves pieces or removes enemies** — it only returns a result code (a string constant).
-2. **The logical board only changes inside `RealTimeArbiter._settle_due_moves`** (Atomic Update), never at the moment a request is sent (`request_move`/`request_jump`).
-3. **`GameEngine` contains no piece-specific rules, no drawing, no pixel mapping.**
-4. **`Controller` does not check move legality** — it only manages selection/deselection state and forwards requests to `GameEngine`.
-5. **Tests never use real `time.sleep()` / `sleep()`** — always `engine.advance_time(ms)`, which advances the logical clock immediately.
-6. **No direct coupling to the token format (`"wR"`) outside `model/piece.py`** — the rest of the system must go through `token_color`/`token_type`, never access `token[0]`/`token[1]` directly. This is critical groundwork for a future move to a binary representation.
-7. **Piece-type definitions (`PIECE_TYPES`) and movement rules (`MOVEMENT_VALIDATORS`) should not be "burned in" to `rule_engine`/`game_engine` logic** — centralizing them in `piece_registry.py`/`piece_rules.py` is meant to prepare the ground for future support of custom pieces ("Kung Fu Chess, Shlomi's Edition"). When that requirement arrives, the needed change is from a hardcoded Strategy in code to a Data-Driven Registry loaded at runtime — without changing the `rule_engine`/`game_engine` interfaces themselves.
-8. **Move speed = Chebyshev distance** (`max(|dx|,|dy|)`), **not** Euclidean — this mistake was already fixed once; it must not be repeated.
+1. **`shared/rules/rule_engine.py` never moves pieces or removes enemies** — only returns a result code.
+2. **The logical board only changes inside `RealTimeArbiter._settle_due_moves`** (Atomic Update) — never at the moment a request is sent.
+3. **`GameEngine` contains no piece-specific rules, no drawing, no pixel mapping, no networking.**
+4. **`Controller` does not check move legality** — only manages selection state and forwards requests.
+5. **Tests never use real `time.sleep()`** — always `engine.advance_time(ms)`.
+6. **No direct coupling to the token format (`"wR"`) outside `shared/model/piece.py`** — always go through `token_color`/`token_type`.
+7. **Piece-type/movement-rule definitions stay data-centralized** (`shared/rules/piece_registry.py`/`piece_rules.py`), not burned into `rule_engine`/`game_engine`.
+8. **Move speed = Chebyshev distance**, not Euclidean.
+9. **The server is the single source of truth for game state** — the client only ever *requests* moves/jumps (after its own optimistic pre-check via `shared/rules/move_validator`) and *applies* snapshots the server sends; it never mutates its own board from a local guess.
+10. **Legality logic is never duplicated between client and server** — both call the exact same `shared/rules` functions.
+11. **`AppBridge`/`ScreenManager`/screens contain no game rules** — they only do network plumbing, navigation, and widget rendering; the moment a game actually starts, control passes entirely to the unmodified `Renderer`/`Controller`/`RemoteGameEngine` triplet.
+12. **`client/ui/renderer.py`'s core drawing (board, pieces, animations, panels, rest bars, player names) does not change based on whether the game is local or networked** — the only engine-specific thing it reads is duck-typed (`GameEngine`/`RemoteGameEngine` both expose the same surface); don't special-case one mode inside `Renderer` if it can instead live in the engine object itself.
 
 ---
 
 ## 12. Working Assumptions
 
-- The board can be of any size (not just 8×8) — code must reference `board.height`/`board.width` dynamically, never hardcode row numbers (this was a mistake fixed twice with `pawn_start_row`).
-- `square_size = 100` pixels is fixed (in `BoardMapper`) — independent of board size.
-- A piece token is always a string in the format `"{color}{type}"` (e.g. `"wR"`), or `"."` for an empty cell — currently hardcoded, but care should be taken not to "lock in" this assumption beyond `model/piece.py`.
-- `DEFAULT_SPEED=1000`, `JUMP_DURATION_MS=1000` — currently global constants, overridable via a parameter but sharing the same default.
-- Input always arrives via `stdin` in the format: `Board:` → board rows → `Commands:` → command lines (`click x y` / `jump x y` / `wait ms` / `print board`).
+- The board can be of any size — code references `board.height`/`board.width` dynamically, never a hardcoded row number.
+- `square_size = 100` pixels, fixed, independent of board size.
+- A piece token is always `"{color}{type}"` or `"."` — never accessed as raw `token[0]`/`token[1]` outside `shared/model/piece.py`.
+- `DEFAULT_SPEED=1000`, `JUMP_DURATION_MS=1000`, `LONG_REST_MS=1000`, `SHORT_REST_MS=500` — global constants in `shared/realtime/motion.py`.
+- Server always listens at `ws://127.0.0.1:8000/ws` (`client/cli/login.py::SERVER_URI` — also the value every graphical screen's `AppBridge.connect()` call uses).
+- Starting ELO rating is **1200**; `K_FACTOR=32`; matchmaking rating range is **±100**; match/room IDs are 6-char `[A-Z0-9]` strings.
+- The graphical board window and every wrapper screen share **one** `cv2` window (`WINDOW_NAME = "Image"`, defined in `client/ui/renderer.py`, imported — never redefined — by `client/ui/screen_manager.py`).
 
 ---
 
 ## 13. Additional Important Information for Continuing the Work
 
-- **Project workflow**: every new iteration comes with a short textual requirement (e.g. "This iteration adds pawn movement rules..."), followed by a focused change in only the relevant files + new tests. It's important to **explicitly mark which files/lines changed** (`ADDED`/`CHANGED`/`REMOVED` in comments) to preserve transparency.
-- **The bug-discovery process** in this project relied mainly on **external tests** (Input/Expected Output supplied as a "grader") rather than only on internal unit tests — when there's a conflict between the internal assumption (a unit test) and the expected external result, the external spec should be prioritized and the unit tests updated accordingly (this already happened 2-3 times with `pawn_start_row` and `DEFAULT_SPEED`).
-- When a test failure report comes in, it's always worth first asking: **is this a bug in production code, or is the test itself already outdated** relative to a recent change? (e.g., changing `pawn_start_row` caused old tests to "correctly fail" because they checked against the old definition).
-- Keep two future extensions in mind: binary board representation, and custom user-defined pieces — every new change in `piece.py`/`piece_rules.py`/`rule_engine.py` should be evaluated against the question "does this make either of these extensions harder?".
-- **No formal, consolidated commit messages exist yet** — only a few individual examples were given along the way (e.g. `feat(engine): enforce single active motion across the board`, `test(rule_engine): fix pawn double-move start row after height-2 fix`). It's recommended to continue with the Conventional Commits convention.
+- **Iteration workflow**: both the original core-logic project and the client/server layer were built one small, explicitly-scoped iteration at a time, each verified before moving to the next. For the client/server layer specifically, the full iteration list (with locked-in decisions and acceptance criteria per iteration) lives in `.claude/CLIENT_SERVER_PLAN.md` — read the exact iteration's section before touching anything, don't implement ahead of what's been asked for.
+- **Any touch to an existing, already-working file requires showing the exact diff and getting it approved before writing it** — this applies even when the general direction was already agreed on elsewhere (e.g. in the plan doc itself). This came up concretely during the "Back to Menu" work (section 7, decision #22): the plan doc pre-approved touching `renderer.py`/`main.py` in principle, but the exact diff — including a consequence the plan hadn't anticipated (`ScreenManager` needing to recreate its window/callback) — was still shown and approved before being written.
+- **Don't assume server response symmetry** — verify the actual handler in `server/network/ws_routes.py` for any new message type before writing client code against it; probe the live server if in doubt (see decision #19). A wrong assumption here silently drops messages into the wrong event-kind bucket rather than crashing.
+- **The bug-discovery process for the core game logic** relied mainly on external tests (input/expected-output) rather than only internal unit tests — when they conflicted, the external spec won and internal tests were updated (happened with `pawn_start_row` and `DEFAULT_SPEED`). When a test failure comes in, always ask first: is this a real regression, or is the test itself now outdated relative to a deliberate recent change?
+- Keep two future extensions in mind for the core logic: binary board representation, and custom user-defined pieces — evaluate every change to `piece.py`/`piece_rules.py`/`rule_engine.py` against "does this make either harder?"
+- No formal, consolidated commit message convention is enforced, but Conventional Commits style is what's been used so far.

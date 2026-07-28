@@ -41,7 +41,11 @@ async def handle_login(payload: dict, ctx: ConnectionContext) -> dict:
 
 
 async def handle_register(payload: dict, ctx: ConnectionContext) -> dict:
-    return await auth_register(payload.get("username", ""), payload.get("password", ""))
+    result = await auth_register(payload.get("username", ""), payload.get("password", ""))
+    if result.get("success"):
+        ctx.username = payload.get("username", "")
+        ctx.rating = result.get("rating")
+    return result
 
 
 async def handle_menu_select(payload: dict, ctx: ConnectionContext) -> dict:

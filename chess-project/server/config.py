@@ -36,6 +36,7 @@ TICK_INTERVAL_SECONDS = TICK_MS / 1000
 DISCONNECT_RESIGN_SECONDS = 20
 
 # --- Rating -------------------------------------------------------------
+DEFAULT_RATING = 1200
 WIN_BONUS_POINTS = 100
 LOSS_PENALTY_POINTS = 30
 CAPTURE_BONUS_POINTS = 2

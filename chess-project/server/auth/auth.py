@@ -4,9 +4,11 @@ from server.db.users_repo import create_user, verify_user
 
 
 async def register(username: str, password: str) -> dict:
+    from server.config import DEFAULT_RATING
+
     created = await asyncio.to_thread(create_user, username, password)
     if created:
-        return {"success": True, "message": "user registered"}
+        return {"success": True, "message": "user registered", "rating": DEFAULT_RATING}
     return {"success": False, "message": "username already exists"}
 
 

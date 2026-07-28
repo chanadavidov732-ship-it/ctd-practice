@@ -2,6 +2,7 @@ import math
 
 import cv2
 
+from shared.config import MOVE_FROM_KEY, MOVE_TO_KEY
 from shared.model.piece import token_color
 from client.config import *
 from client.ui.img import Img
@@ -118,7 +119,7 @@ class Renderer:
 
     def _draw_pieces(self, canvas_img):
         game_state = self.game_engine.game_state
-        moves_by_from = {move["from"]: move for move in game_state.pending_moves}
+        moves_by_from = {move.get(MOVE_FROM_KEY): move for move in game_state.pending_moves}
 
         for row in range(self.board.height):
             for col in range(self.board.width):
@@ -143,8 +144,8 @@ class Renderer:
         elapsed = duration - (move["completion_time"] - game_state.clock)
         progress = 0.0 if duration <= 0 else max(0.0, min(1.0, elapsed / duration))
 
-        from_x, from_y = move["from"][0] * self.square_size, move["from"][1] * self.square_size
-        to_x, to_y = move["to"][0] * self.square_size, move["to"][1] * self.square_size
+        from_x, from_y = move[MOVE_FROM_KEY][0] * self.square_size, move[MOVE_FROM_KEY][1] * self.square_size
+        to_x, to_y = move[MOVE_TO_KEY][0] * self.square_size, move[MOVE_TO_KEY][1] * self.square_size
 
         x = from_x + (to_x - from_x) * progress
         y = from_y + (to_y - from_y) * progress
@@ -275,8 +276,8 @@ class Renderer:
             y += PANEL_LINE_HEIGHT
 
     def _format_move(self, move):
-        from_col, from_row = move["from"]
-        to_col, to_row = move["to"]
+        from_col, from_row = move[MOVE_FROM_KEY]
+        to_col, to_row = move[MOVE_TO_KEY]
         text = f"{move['token']} ({from_col},{from_row})->({to_col},{to_row})"
         if move.get("captured_token", ".") != ".":
             text += " x"

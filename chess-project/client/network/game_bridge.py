@@ -3,6 +3,7 @@ import logging
 import queue
 
 from client.network.remote_game_engine import RemoteGameEngine
+from shared.config import MOVE_FROM_KEY, MOVE_TO_KEY
 from shared.protocol import Envelope
 
 logger = logging.getLogger("client")
@@ -35,7 +36,7 @@ def build_remote_engine(connection, payload: dict, loop: asyncio.AbstractEventLo
     loop = loop or asyncio.get_running_loop()
 
     def send_move(from_pos, to_pos) -> None:
-        envelope = Envelope(type="move", payload={"from": list(from_pos), "to": list(to_pos)})
+        envelope = Envelope(type="move", payload={MOVE_FROM_KEY: list(from_pos), MOVE_TO_KEY: list(to_pos)})
         asyncio.run_coroutine_threadsafe(connection.send(envelope), loop)
 
     def send_jump(pos) -> None:

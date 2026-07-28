@@ -1,5 +1,6 @@
 import threading
 
+from shared.config import MOVE_FROM_KEY, MOVE_TO_KEY
 from shared.model.board import Board
 from shared.model.game_state import GameState
 from shared.rules import rule_engine
@@ -45,8 +46,8 @@ class RemoteGameEngine:
             gs.locked = {tuple(pos) for pos in payload["locked"]}
             gs.pending_moves = [
                 {
-                    "from": tuple(m["from"]),
-                    "to": tuple(m["to"]),
+                    MOVE_FROM_KEY: tuple(m[MOVE_FROM_KEY]),
+                    MOVE_TO_KEY: tuple(m[MOVE_TO_KEY]),
                     "token": m["token"],
                     "completion_time": m["completion_time"],
                     "duration": m["duration"],
@@ -60,8 +61,8 @@ class RemoteGameEngine:
 
             self._pending_settled.extend(
                 {
-                    "from": tuple(m["from"]),
-                    "to": tuple(m["to"]),
+                    MOVE_FROM_KEY: tuple(m[MOVE_FROM_KEY]),
+                    MOVE_TO_KEY: tuple(m[MOVE_TO_KEY]),
                     "token": m["token"],
                     "captured_token": m["captured"],
                 }

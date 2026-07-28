@@ -5,6 +5,7 @@ from typing import Optional
 
 from server.engine_adapter.adapter import create_engine
 from server.logic import rating
+from shared.config import MOVE_FROM_KEY, MOVE_TO_KEY
 from shared.model.piece import token_color, token_type
 from shared.protocol import Envelope
 from shared.rules import rule_engine
@@ -178,8 +179,8 @@ class GameSession:
             "locked": [list(pos) for pos in self.game_state.locked],
             "pending_moves": [
                 {
-                    "from": list(m["from"]),
-                    "to": list(m["to"]),
+                    MOVE_FROM_KEY: list(m[MOVE_FROM_KEY]),
+                    MOVE_TO_KEY: list(m[MOVE_TO_KEY]),
                     "token": m["token"],
                     "completion_time": m["completion_time"],
                     "duration": m["duration"],
@@ -193,8 +194,8 @@ class GameSession:
             "airborne": [{"pos": list(pos), "until": until} for pos, until in self.game_state.airborne.items()],
             "settled_moves": [
                 {
-                    "from": list(m["from"]),
-                    "to": list(m["to"]),
+                    MOVE_FROM_KEY: list(m[MOVE_FROM_KEY]),
+                    MOVE_TO_KEY: list(m[MOVE_TO_KEY]),
                     "token": m["token"],
                     "captured": m["captured_token"],
                 }

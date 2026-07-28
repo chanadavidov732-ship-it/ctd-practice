@@ -27,3 +27,10 @@ MOVEMENT_VALIDATORS = {
     BISHOP: _validate_bishop,
     KNIGHT: _validate_knight,
 }
+
+# --- Move dict field names -------------------------------------------------
+# Shared by shared/realtime/realtime_arbiter.py (builds pending_moves entries),
+# server/logic/game_session.py + client/network/*.py (wire payload), and
+# client/ui/renderer.py (reads them) -- change here to rename everywhere.
+MOVE_FROM_KEY = "from"
+MOVE_TO_KEY = "to"

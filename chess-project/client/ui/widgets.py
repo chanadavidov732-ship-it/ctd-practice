@@ -1,17 +1,10 @@
-"""Generic Img/cv2-based UI widgets, shared by every graphical wrapper screen
-(Login/Home/Room/Matchmaking/...). Built once here (iteration 11), reused by
-each screen added from iteration 12 onward -- no per-screen duplication of
-button/text-field/keyboard-handling logic.
-"""
-
 from dataclasses import dataclass
 
 import cv2
 
+from client.config import BACKSPACE_KEY, ENTER_KEYS
 from client.ui.img import Img
 
-ENTER_KEYS = (13, 10)
-BACKSPACE_KEY = 8
 PRINTABLE_KEY_MIN = 32
 PRINTABLE_KEY_MAX = 126
 MASK_CHAR = "*"
@@ -38,17 +31,19 @@ LABEL_TEXT_THICKNESS = 2
 ERROR_TEXT_COLOR = (0, 0, 255, 255)
 
 
+class _RectHitTest:
+    def hit_test(self, x: int, y: int) -> bool:
+        return self.x <= x <= self.x + self.width and self.y <= y <= self.y + self.height
+
+
 @dataclass
-class Button:
+class Button(_RectHitTest):
     x: int
     y: int
     width: int
     height: int
     text: str
     font_size: float = BUTTON_FONT_SIZE
-
-    def hit_test(self, x: int, y: int) -> bool:
-        return self.x <= x <= self.x + self.width and self.y <= y <= self.y + self.height
 
     def render(self, canvas: Img) -> None:
         top_left = (self.x, self.y)
@@ -63,7 +58,7 @@ class Button:
 
 
 @dataclass
-class TextInput:
+class TextInput(_RectHitTest):
     x: int
     y: int
     width: int
@@ -72,13 +67,7 @@ class TextInput:
     focused: bool = False
     value: str = ""
 
-    def hit_test(self, x: int, y: int) -> bool:
-        return self.x <= x <= self.x + self.width and self.y <= y <= self.y + self.height
-
     def handle_key(self, key: int) -> bool:
-        """Applies one keypress to the field's value. Returns True if Enter was
-        pressed -- the field itself doesn't decide what Enter means (submit the
-        form, move to the next field, ...); that's up to the owning screen."""
         if key in ENTER_KEYS:
             return True
         if key == BACKSPACE_KEY:

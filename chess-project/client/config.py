@@ -1,5 +1,8 @@
 import pathlib
 
+# --- Network ------------------------------------------------------------
+SERVER_URI = "ws://127.0.0.1:8000/ws"
+
 # --- Renderer: window / canvas -------------------------------------------
 BOARD_IMAGE_PATH = pathlib.Path(__file__).parent / "ui" / "game_snapshot" / "board.png"
 WINDOW_NAME = "Image"
@@ -15,6 +18,7 @@ SELECTION_THICKNESS = 3
 GAME_OVER_TEXT = "GAME OVER"
 GAME_OVER_COLOR = (0, 0, 255, 255)
 GAME_OVER_FONT_SIZE = 2
+GAME_OVER_TEXT_X_OFFSET = 130
 
 BACK_TO_MENU_TEXT = "Back to Menu"
 BACK_TO_MENU_BUTTON_WIDTH = 220

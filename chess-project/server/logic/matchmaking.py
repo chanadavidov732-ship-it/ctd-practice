@@ -1,5 +1,4 @@
 import asyncio
-import secrets
 from dataclasses import dataclass
 from typing import Optional
 
@@ -29,8 +28,7 @@ class Matchmaking:
         return None
 
     def find_opponent(self, rating: int, exclude_client_id: str) -> QueuedPlayer | None:
-        from server.config import RATING_RANGE  # deferred: server.config imports ws_routes,
-        # which transitively reaches this module at import time -- circular otherwise.
+        from server.config import RATING_RANGE
 
         for player in self._queue:
             if player.client_id == exclude_client_id:
@@ -45,12 +43,18 @@ class Matchmaking:
                 return self._queue.pop(i)
         return None
 
+    def remove_and_cancel_timeout(self, client_id: str) -> QueuedPlayer | None:
+        player = self.remove(client_id)
+        if player is not None and player.timeout_task is not None:
+            player.timeout_task.cancel()
+        return player
+
     @staticmethod
     def generate_match_id() -> str:
-        from server.config import MATCH_ID_ALPHABET, MATCH_ID_LENGTH  # deferred: see the note
-        # in find_opponent above -- same circular-import reason.
+        from server.config import ID_ALPHABET, ID_LENGTH
+        from server.logic.id_gen import generate_id
 
-        return "".join(secrets.choice(MATCH_ID_ALPHABET) for _ in range(MATCH_ID_LENGTH))
+        return generate_id(ID_ALPHABET, ID_LENGTH)
 
 
 matchmaking = Matchmaking()

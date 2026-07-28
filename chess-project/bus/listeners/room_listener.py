@@ -18,10 +18,9 @@ async def on_player_joined_room(event: PlayerJoinedRoom) -> None:
     await broadcast_room_state(event.room_id, exclude_client_id=event.client_id)
 
     room = room_manager.get_room(event.room_id)
-    if room is not None and len(room.players) == 2 and not room.game_started:
-        room.game_started = True
-        viewer_websockets = [v.websocket for v in room.viewers]
-        await game_session_manager.start_for_room(room.room_id, room.players[0], room.players[1], viewer_websockets)
+    if room is not None and room.is_full and not room.game_started:
+        player_a, player_b = room.start_game()
+        await game_session_manager.start_for_room(room.room_id, player_a, player_b, room.viewer_websockets())
 
 
 async def on_viewer_joined_room(event: ViewerJoinedRoom) -> None:
@@ -31,6 +30,6 @@ async def on_viewer_joined_room(event: ViewerJoinedRoom) -> None:
     session = game_session_manager.get_for_room(event.room_id)
     if session is not None:
         room = room_manager.get_room(event.room_id)
-        viewer = next((v for v in room.viewers if v.client_id == event.client_id), None) if room else None
+        viewer = room.find_viewer(event.client_id) if room else None
         if viewer is not None:
             await session.add_viewer(viewer.websocket)

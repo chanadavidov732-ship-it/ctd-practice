@@ -1,13 +1,19 @@
-"""Matchmaking (Play) screen -- mirrors client/cli/play.py's run_play_menu +
-_wait_for_match (one continuous flow: queue -> search -> game/timeout/cancel).
-"""
-
 import time
 
 from client.network.app_bridge import CONNECTION_LOST
 from client.ui.img import Img
 from client.ui.screens.base_screen import Screen
 from client.ui.widgets import Button, ErrorText, Label
+from shared.config import (
+    MATCH_TIMEOUT_SECONDS,
+    MSG_CANCEL_PLAY,
+    MSG_GAME_STARTED,
+    MSG_MATCH_FOUND,
+    MSG_MATCH_TIMEOUT,
+    MSG_PLAY,
+    MSG_PLAY_CANCELLED,
+    MSG_PLAY_QUEUED,
+)
 from shared.protocol import Envelope
 
 STATE_QUEUING = "queuing"
@@ -18,7 +24,7 @@ STATE_QUEUE_ERROR = "queue_error"
 STATE_DISCONNECTED = "disconnected"
 
 DISCONNECTED_MESSAGE = "Disconnected from server."
-TIMEOUT_MESSAGE = "No opponent found within 60 seconds."
+TIMEOUT_MESSAGE = f"No opponent found within {MATCH_TIMEOUT_SECONDS} seconds."
 
 TITLE_X = 40
 TITLE_Y = 50
@@ -60,7 +66,7 @@ class MatchmakingScreen(Screen):
         self.username = payload.get("username", "?")
         self.rating = payload.get("rating")
         self.status = STATE_QUEUING
-        self.bridge.send_request(Envelope(type="play", payload={}))
+        self.bridge.send_request(Envelope(type=MSG_PLAY, payload={}))
 
     def update(self) -> None:
         for event in self.bridge.poll_events():
@@ -72,23 +78,19 @@ class MatchmakingScreen(Screen):
             if envelope is None:
                 continue
 
-            # game_started/match_timeout always win, regardless of the current
-            # sub-state: the same race client/cli/play.py's _wait_for_match
-            # already resolves today (a match can be found the instant before
-            # Cancel is clicked, even after cancel_play was already sent).
-            if envelope.type == "game_started":
+            if envelope.type == MSG_GAME_STARTED:
                 self._enter_game(envelope.payload)
                 return
-            if envelope.type == "match_timeout":
+            if envelope.type == MSG_MATCH_TIMEOUT:
                 self.status = STATE_TIMEOUT
                 continue
 
-            if self.status == STATE_QUEUING and envelope.type in ("play_queued", "play"):
+            if self.status == STATE_QUEUING and envelope.type in (MSG_PLAY_QUEUED, MSG_PLAY):
                 self._handle_play_response(envelope.payload)
-            elif self.status == STATE_SEARCHING and envelope.type == "match_found":
+            elif self.status == STATE_SEARCHING and envelope.type == MSG_MATCH_FOUND:
                 self.opponent_username = envelope.payload.get("opponent_username")
                 self.opponent_rating = envelope.payload.get("opponent_rating")
-            elif self.status == STATE_CANCELLING and envelope.type == "play_cancelled":
+            elif self.status == STATE_CANCELLING and envelope.type == MSG_PLAY_CANCELLED:
                 self._return_to_home()
 
     def _handle_play_response(self, payload: dict) -> None:
@@ -102,8 +104,6 @@ class MatchmakingScreen(Screen):
         self._search_started_at = time.perf_counter()
 
     def _enter_game(self, payload: dict) -> None:
-        # Imported lazily: only reached once a game actually starts, not by
-        # every screen that merely imports MatchmakingScreen (e.g. HomeScreen).
         from client.ui.game_runner import run_graphical_game
 
         engine = self.bridge.build_remote_engine(payload)
@@ -114,9 +114,6 @@ class MatchmakingScreen(Screen):
             self.should_quit = True
 
     def _return_to_home(self) -> None:
-        # Imported lazily: home_screen.py imports MatchmakingScreen at module
-        # level, so importing HomeScreen back at module level here would
-        # create a circular import.
         from client.ui.screens.home_screen import HomeScreen
 
         self.next_screen = (HomeScreen, {"username": self.username, "rating": self.rating})
@@ -140,7 +137,7 @@ class MatchmakingScreen(Screen):
 
     def _cancel(self) -> None:
         self.status = STATE_CANCELLING
-        self.bridge.send_request(Envelope(type="cancel_play", payload={}))
+        self.bridge.send_request(Envelope(type=MSG_CANCEL_PLAY, payload={}))
 
     def render(self, canvas: Img) -> None:
         Label(x=TITLE_X, y=TITLE_Y, text="Matchmaking", font_size=1.0).render(canvas)
@@ -167,7 +164,6 @@ class MatchmakingScreen(Screen):
             Label(x=MESSAGE_X, y=MESSAGE_Y, text="Queuing...").render(canvas)
             return
 
-        # STATE_SEARCHING or STATE_CANCELLING
         elapsed = int(time.perf_counter() - self._search_started_at) if self._search_started_at else 0
         Label(x=STATUS_LINE_X, y=STATUS_LINE_Y, text=f"Searching for opponent... ({elapsed}s)").render(canvas)
         if self.opponent_username is not None:

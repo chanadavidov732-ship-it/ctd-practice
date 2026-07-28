@@ -1,18 +1,3 @@
-"""Runs the existing (iteration 9) graphical game loop -- Controller + Renderer
-built from a RemoteGameEngine -- so any wrapper screen that receives
-"game_started" (Room in iteration 14, Matchmaking in iteration 15) can reuse
-it without duplicating it.
-
-Resurrects client/main.py's pre-iteration-12 `_run_graphical_game` (deleted
-when main.py switched to the graphical Login/Home flow), adapted to pull
-game_update/game_over/disconnect_countdown/*_rejected envelopes from
-AppBridge.poll_events() each frame instead of a separate asyncio task reading
-the connection directly -- AppBridge already owns the one continuous receive
-loop on the network thread, so a second reader on the same connection isn't
-an option here the way client/network/game_bridge.py's pump_game_messages was
-for the CLI's GameBridge-based flow.
-"""
-
 import time
 
 from client.network.app_bridge import AppBridge, BROADCAST
@@ -21,10 +6,6 @@ from client.network.remote_game_engine import RemoteGameEngine
 
 
 def run_graphical_game(bridge: AppBridge, engine: RemoteGameEngine) -> bool:
-    """Blocks until the game window closes. Returns True if the user asked to
-    go back to the menu (the "Back to Menu" button shown once the game is
-    over), False if they quit outright."""
-    # Imported lazily: only the graphical path needs cv2/Img, not every screen.
     from client.input.board_mapper import BoardMapper
     from client.input.controller import Controller
     from client.ui.renderer import Renderer

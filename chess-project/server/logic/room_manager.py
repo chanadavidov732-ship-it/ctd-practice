@@ -1,5 +1,6 @@
-import secrets
 from dataclasses import dataclass
+
+from shared.config import MAX_ROOM_PLAYERS
 
 
 @dataclass
@@ -17,12 +18,34 @@ class Room:
         self.viewers: list[RoomParticipant] = []
         self.game_started = False
 
+    @property
+    def player_count(self) -> int:
+        return len(self.players)
+
+    @property
+    def viewer_count(self) -> int:
+        return len(self.viewers)
+
+    @property
+    def is_full(self) -> bool:
+        return self.player_count >= MAX_ROOM_PLAYERS
+
     def role_of(self, client_id: str) -> str | None:
         if any(p.client_id == client_id for p in self.players):
             return "player"
         if any(p.client_id == client_id for p in self.viewers):
             return "viewer"
         return None
+
+    def viewer_websockets(self) -> list:
+        return [v.websocket for v in self.viewers]
+
+    def find_viewer(self, client_id: str) -> RoomParticipant | None:
+        return next((v for v in self.viewers if v.client_id == client_id), None)
+
+    def start_game(self) -> tuple[RoomParticipant, RoomParticipant]:
+        self.game_started = True
+        return self.players[0], self.players[1]
 
 
 class RoomManager:
@@ -40,7 +63,7 @@ class RoomManager:
         room = self._rooms.get(room_id)
         if room is None:
             return None
-        if len(room.players) < 2:
+        if not room.is_full:
             room.players.append(participant)
         else:
             room.viewers.append(participant)
@@ -61,14 +84,10 @@ class RoomManager:
         return self._rooms.get(room_id)
 
     def _generate_room_id(self) -> str:
-        from server.config import ROOM_ID_ALPHABET, ROOM_ID_LENGTH  # deferred: server.config
-        # imports ws_routes, which transitively reaches this module at import time --
-        # circular otherwise.
+        from server.config import ID_ALPHABET, ID_LENGTH
+        from server.logic.id_gen import generate_id
 
-        while True:
-            candidate = "".join(secrets.choice(ROOM_ID_ALPHABET) for _ in range(ROOM_ID_LENGTH))
-            if candidate not in self._rooms:
-                return candidate
+        return generate_id(ID_ALPHABET, ID_LENGTH, is_taken=lambda candidate: candidate in self._rooms)
 
 
 room_manager = RoomManager()

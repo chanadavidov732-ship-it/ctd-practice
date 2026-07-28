@@ -1,11 +1,8 @@
-"""Room screen -- Create/Join/wait, mirroring client/cli/room.py's run_room_menu
-+ _wait_in_room (one continuous flow across sub-states on the same screen).
-"""
-
 from client.network.app_bridge import CONNECTION_LOST
 from client.ui.img import Img
 from client.ui.screens.base_screen import Screen
 from client.ui.widgets import Button, ErrorText, Label, TextInput
+from shared.config import MAX_ROOM_PLAYERS, MSG_CANCEL_ROOM, MSG_CREATE_ROOM, MSG_GAME_STARTED, MSG_JOIN_ROOM, MSG_ROOM_STATE
 from shared.protocol import Envelope
 
 STATE_CHOICE = "choice"
@@ -91,15 +88,15 @@ class RoomScreen(Screen):
             if envelope is None:
                 continue
 
-            if self.status == STATE_WAITING_ACK and envelope.type in ("room_state", "join_room"):
+            if self.status == STATE_WAITING_ACK and envelope.type in (MSG_ROOM_STATE, MSG_JOIN_ROOM):
                 self._handle_room_response(envelope.payload)
-            elif self.status == STATE_CANCELLING and envelope.type == "room_state":
+            elif self.status == STATE_CANCELLING and envelope.type == MSG_ROOM_STATE:
                 self._return_to_home()
             elif self.status == STATE_WAITING:
-                if envelope.type == "room_state":
+                if envelope.type == MSG_ROOM_STATE:
                     self.player_count = envelope.payload.get("player_count", self.player_count)
                     self.viewer_count = envelope.payload.get("viewer_count", self.viewer_count)
-                elif envelope.type == "game_started":
+                elif envelope.type == MSG_GAME_STARTED:
                     self._enter_game(envelope.payload)
 
     def _handle_room_response(self, payload: dict) -> None:
@@ -116,8 +113,6 @@ class RoomScreen(Screen):
         self.status = STATE_WAITING
 
     def _enter_game(self, payload: dict) -> None:
-        # Imported lazily: only reached once a game actually starts, not by
-        # every screen that merely imports RoomScreen (e.g. HomeScreen).
         from client.ui.game_runner import run_graphical_game
 
         engine = self.bridge.build_remote_engine(payload)
@@ -128,9 +123,6 @@ class RoomScreen(Screen):
             self.should_quit = True
 
     def _return_to_home(self) -> None:
-        # Imported lazily: home_screen.py imports RoomScreen at module level,
-        # so importing HomeScreen back at module level here would create a
-        # circular import.
         from client.ui.screens.home_screen import HomeScreen
 
         self.next_screen = (HomeScreen, {"username": self.username, "rating": self.rating})
@@ -167,7 +159,7 @@ class RoomScreen(Screen):
     def _create(self) -> None:
         self.status = STATE_WAITING_ACK
         self.error_message = None
-        self.bridge.send_request(Envelope(type="create_room", payload={}))
+        self.bridge.send_request(Envelope(type=MSG_CREATE_ROOM, payload={}))
 
     def _join(self) -> None:
         room_id = self.room_id_field.value.strip()
@@ -176,11 +168,11 @@ class RoomScreen(Screen):
             return
         self.error_message = None
         self.status = STATE_WAITING_ACK
-        self.bridge.send_request(Envelope(type="join_room", payload={"room_id": room_id}))
+        self.bridge.send_request(Envelope(type=MSG_JOIN_ROOM, payload={"room_id": room_id}))
 
     def _cancel(self) -> None:
         self.status = STATE_CANCELLING
-        self.bridge.send_request(Envelope(type="cancel_room", payload={"room_id": self.room_id}))
+        self.bridge.send_request(Envelope(type=MSG_CANCEL_ROOM, payload={"room_id": self.room_id}))
 
     def render(self, canvas: Img) -> None:
         Label(x=TITLE_X, y=TITLE_Y, text="Room", font_size=1.0).render(canvas)
@@ -207,9 +199,8 @@ class RoomScreen(Screen):
             Label(x=MESSAGE_X, y=MESSAGE_Y, text="Sending...").render(canvas)
             return
 
-        # STATE_WAITING or STATE_CANCELLING
         Label(x=STATUS_LINE_X, y=ROOM_ID_Y, text=f"Room ID: {self.room_id}").render(canvas)
-        Label(x=STATUS_LINE_X, y=COUNTS_Y, text=f"Players: {self.player_count}/2  Viewers: {self.viewer_count}").render(canvas)
+        Label(x=STATUS_LINE_X, y=COUNTS_Y, text=f"Players: {self.player_count}/{MAX_ROOM_PLAYERS}  Viewers: {self.viewer_count}").render(canvas)
         Label(x=STATUS_LINE_X, y=ROLE_Y, text=f"Role: {self.role}").render(canvas)
         self.cancel_button.render(canvas)
         if self.status == STATE_CANCELLING:

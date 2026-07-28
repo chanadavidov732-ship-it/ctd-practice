@@ -11,6 +11,7 @@ from server.logic.matchmaking import QueuedPlayer, matchmaking
 from server.logic.room_manager import RoomParticipant, room_manager
 from server.network.connection_registry import connection_registry
 from server.network.room_broadcaster import broadcast_room_state
+from shared.config import MENU_CHOICE_PLAY, MENU_CHOICE_ROOM, MSG_PLAY_QUEUED, MSG_ROOM_STATE
 from shared.protocol import Envelope
 
 logger = logging.getLogger("server")
@@ -45,13 +46,18 @@ async def handle_register(payload: dict, ctx: ConnectionContext) -> dict:
 
 async def handle_menu_select(payload: dict, ctx: ConnectionContext) -> dict:
     choice = payload.get("choice")
-    if choice not in ("play", "room"):
+    if choice not in (MENU_CHOICE_PLAY, MENU_CHOICE_ROOM):
         return {"received": False, "message": f"unknown menu choice: {choice}"}
     return {"received": True, "choice": choice, "message": f"'{choice}' selection received"}
 
 
 def _participant(ctx: "ConnectionContext") -> RoomParticipant:
     return RoomParticipant(client_id=ctx.client_id, username=ctx.username, rating=ctx.rating, websocket=ctx.websocket)
+
+
+async def _send_ack_then_publish(ctx: "ConnectionContext", ack: Envelope, event) -> None:
+    await ctx.websocket.send_json(ack.to_dict())
+    await event_bus.publish(event)
 
 
 async def handle_create_room(payload: dict, ctx: ConnectionContext) -> dict:
@@ -62,8 +68,8 @@ async def handle_create_room(payload: dict, ctx: ConnectionContext) -> dict:
     return {
         "room_id": room.room_id,
         "role": "player",
-        "player_count": len(room.players),
-        "viewer_count": len(room.viewers),
+        "player_count": room.player_count,
+        "viewer_count": room.viewer_count,
     }
 
 
@@ -77,26 +83,19 @@ async def handle_join_room(payload: dict, ctx: ConnectionContext) -> dict | None
     connection_registry.add(room_id, ctx.websocket, ctx.client_id)
     role = room.role_of(ctx.client_id)
 
-    # Sent directly and awaited before publishing: if this join completes the
-    # room's player pair, the PlayerJoinedRoom listener starts a GameSession and
-    # pushes "game_started" synchronously, which must not arrive before this ack.
     ack = Envelope(
-        type="room_state",
+        type=MSG_ROOM_STATE,
         payload={
             "success": True,
             "room_id": room_id,
             "role": role,
-            "player_count": len(room.players),
-            "viewer_count": len(room.viewers),
+            "player_count": room.player_count,
+            "viewer_count": room.viewer_count,
         },
     )
-    await ctx.websocket.send_json(ack.to_dict())
-
-    if role == "player":
-        await event_bus.publish(PlayerJoinedRoom(room_id=room_id, client_id=ctx.client_id))
-    else:
-        await event_bus.publish(ViewerJoinedRoom(room_id=room_id, client_id=ctx.client_id))
-
+    event = PlayerJoinedRoom(room_id=room_id, client_id=ctx.client_id) if role == "player" \
+        else ViewerJoinedRoom(room_id=room_id, client_id=ctx.client_id)
+    await _send_ack_then_publish(ctx, ack, event)
     return None
 
 
@@ -131,32 +130,24 @@ async def handle_play(payload: dict, ctx: ConnectionContext) -> dict | None:
     )
     matchmaking.enqueue(player)
 
-    # Sent directly (not returned) and awaited before publishing: the PlayerQueued
-    # listener may find an immediate match and push match_found synchronously, and
-    # that must not reach this client before its own "queued" ack does.
     ack = Envelope(
-        type="play_queued",
+        type=MSG_PLAY_QUEUED,
         payload={"success": True, "message": "queued for a match", "rating": ctx.rating},
     )
-    await ctx.websocket.send_json(ack.to_dict())
-
-    await event_bus.publish(PlayerQueued(client_id=ctx.client_id, username=ctx.username, rating=ctx.rating))
+    event = PlayerQueued(client_id=ctx.client_id, username=ctx.username, rating=ctx.rating)
+    await _send_ack_then_publish(ctx, ack, event)
     return None
 
 
 async def handle_cancel_play(payload: dict, ctx: ConnectionContext) -> dict:
-    player = matchmaking.remove(ctx.client_id)
+    player = matchmaking.remove_and_cancel_timeout(ctx.client_id)
     if player is None:
         return {"success": False, "message": "not in queue"}
-    if player.timeout_task is not None:
-        player.timeout_task.cancel()
     return {"success": True, "message": "left queue"}
 
 
 async def _leave_queue(ctx: ConnectionContext) -> None:
-    player = matchmaking.remove(ctx.client_id)
-    if player is not None and player.timeout_task is not None:
-        player.timeout_task.cancel()
+    matchmaking.remove_and_cancel_timeout(ctx.client_id)
 
 
 async def _handle_game_disconnect(ctx: ConnectionContext) -> None:
@@ -200,9 +191,6 @@ async def handle_jump(payload: dict, ctx: ConnectionContext) -> dict | None:
 
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    from server.config import HANDLERS, RESPONSE_TYPE  # deferred: server.config builds HANDLERS
-    # from this module's handler functions, so a top-level import here would be circular.
-
     await websocket.accept()
     client = f"{websocket.client.host}:{websocket.client.port}"
     logger.info("client connected: %s", client)
@@ -211,27 +199,9 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             data = await websocket.receive_json()
-            envelope = Envelope.from_dict(data)
-            logger.info("received from %s: %s", client, envelope.to_dict())
-
-            handler = HANDLERS.get(envelope.type)
-            if handler is None:
-                response = Envelope(
-                    type="error",
-                    payload={"message": f"unknown message type: {envelope.type}"},
-                    request_id=envelope.request_id,
-                )
-            else:
-                payload = await handler(envelope.payload, ctx)
-                if payload is None:
-                    # handler already sent its own envelope(s) directly (ordering-sensitive case)
-                    continue
-                response = Envelope(
-                    type=RESPONSE_TYPE.get(envelope.type, envelope.type),
-                    payload=payload,
-                    request_id=envelope.request_id,
-                )
-
+            response = await _dispatch(Envelope.from_dict(data), ctx, client)
+            if response is None:
+                continue
             logger.info("sending to %s: %s", client, response.to_dict())
             await websocket.send_json(response.to_dict())
     except WebSocketDisconnect:
@@ -239,3 +209,26 @@ async def websocket_endpoint(websocket: WebSocket):
         await _leave_room(ctx)
         await _leave_queue(ctx)
         await _handle_game_disconnect(ctx)
+
+
+async def _dispatch(envelope: Envelope, ctx: "ConnectionContext", client: str) -> Envelope | None:
+    from server.config import HANDLERS, RESPONSE_TYPE
+
+    logger.info("received from %s: %s", client, envelope.to_dict())
+
+    handler = HANDLERS.get(envelope.type)
+    if handler is None:
+        return Envelope(
+            type="error",
+            payload={"message": f"unknown message type: {envelope.type}"},
+            request_id=envelope.request_id,
+        )
+
+    payload = await handler(envelope.payload, ctx)
+    if payload is None:
+        return None
+    return Envelope(
+        type=RESPONSE_TYPE.get(envelope.type, envelope.type),
+        payload=payload,
+        request_id=envelope.request_id,
+    )

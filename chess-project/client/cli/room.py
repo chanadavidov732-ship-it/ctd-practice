@@ -3,6 +3,7 @@ import contextlib
 
 from client.network.connection import ServerConnection
 from client.network.game_bridge import GameBridge, build_remote_engine, pump_game_messages
+from shared.config import MSG_CANCEL_ROOM, MSG_CREATE_ROOM, MSG_GAME_STARTED, MSG_JOIN_ROOM, MSG_ROOM_STATE
 from shared.protocol import Envelope
 
 
@@ -11,9 +12,9 @@ async def run_room_menu(connection: ServerConnection, bridge: GameBridge) -> Non
 
     if choice == "2":
         room_id = input("Room ID: ").strip()
-        await connection.send(Envelope(type="join_room", payload={"room_id": room_id}))
+        await connection.send(Envelope(type=MSG_JOIN_ROOM, payload={"room_id": room_id}))
     else:
-        await connection.send(Envelope(type="create_room", payload={}))
+        await connection.send(Envelope(type=MSG_CREATE_ROOM, payload={}))
 
     response = await connection.receive()
     payload = response.payload
@@ -38,11 +39,9 @@ async def _wait_in_room(connection: ServerConnection, room_id: str, bridge: Game
         nonlocal resolved, game_started_payload
         while True:
             envelope = await connection.receive()
-            if envelope.type == "room_state":
+            if envelope.type == MSG_ROOM_STATE:
                 print(f"room update: {envelope.payload}")
-            elif envelope.type == "game_started":
-                # Only players (the 2 that fill the room) get "game_started";
-                # viewers stay on the CLI room screen for this iteration.
+            elif envelope.type == MSG_GAME_STARTED:
                 game_started_payload = envelope.payload
                 resolved = True
                 return
@@ -67,6 +66,6 @@ async def _wait_in_room(connection: ServerConnection, room_id: str, bridge: Game
         await pump_game_messages(connection, engine)
         return
 
-    await connection.send(Envelope(type="cancel_room", payload={"room_id": room_id}))
+    await connection.send(Envelope(type=MSG_CANCEL_ROOM, payload={"room_id": room_id}))
     response = await connection.receive()
     print(f"server: {response.payload}")

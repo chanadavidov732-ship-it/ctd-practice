@@ -2,7 +2,7 @@ import math
 
 import cv2
 
-from shared.config import MOVE_FROM_KEY, MOVE_TO_KEY
+from shared.config import BLACK, CAPTURED_TOKEN_KEY, EMPTY_CELL, MOVE_FROM_KEY, MOVE_TO_KEY, WHITE
 from shared.model.piece import token_color
 from client.config import *
 from client.ui.img import Img
@@ -24,6 +24,9 @@ class Renderer:
         self.sprite_manager = SpriteManager(square_size)
         self.wants_menu = False
         self._back_to_menu_button: Button | None = None
+        self._open_window()
+
+    def _open_window(self):
         cv2.namedWindow(WINDOW_NAME)
         cv2.setMouseCallback(WINDOW_NAME, self._on_mouse)
 
@@ -40,10 +43,6 @@ class Renderer:
             self.controller.handle_jump(board_x, board_y)
 
     def prompt_player_names(self):
-        """Blocks on this window, letting the user type each player's name before the game starts.
-
-        Returns False if the window was closed before both names were entered.
-        """
         white = self._prompt_text("Enter White player's name (Enter to confirm):", DEFAULT_WHITE_NAME)
         if white is None:
             return False
@@ -57,7 +56,6 @@ class Renderer:
         return True
 
     def _prompt_text(self, prompt, default):
-        """Returns the typed text (or default), or None if the window was closed."""
         canvas_width, canvas_height = self._canvas_size()
         text = ""
         while True:
@@ -80,10 +78,6 @@ class Renderer:
         return text.strip() or default
 
     def render(self):
-        """Draws one frame. Returns False once the user asked to quit -- by key,
-        the window's own close button, or (once the game is over) the "Back to
-        Menu" button -- callers that care about which one it was check
-        self.wants_menu after the loop exits."""
         key = self._draw_frame()
         closed_by_user = cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1
         if self.wants_menu or key in QUIT_KEYS or closed_by_user:
@@ -125,7 +119,7 @@ class Renderer:
             for col in range(self.board.width):
                 pos = (row, col)
                 token = self.board.get_piece(pos)
-                if token == ".":
+                if token == EMPTY_CELL:
                     continue
 
                 move = moves_by_from.get(pos)
@@ -152,7 +146,6 @@ class Renderer:
         return int(x), int(y)
 
     def _jump_lift(self, pos, game_state):
-        """Pixels to rise by, following a hop arc that peaks mid-jump and returns to 0 on landing."""
         progress = self.sprite_manager.jump_progress(pos, game_state)
         if progress is None:
             return 0
@@ -193,7 +186,7 @@ class Renderer:
         board_height = self.board.height * self.square_size
         canvas_img.put_text(
             GAME_OVER_TEXT,
-            self.board_offset_x + board_width // 2 - 130,
+            self.board_offset_x + board_width // 2 - GAME_OVER_TEXT_X_OFFSET,
             self.board_offset_y + board_height // 2,
             GAME_OVER_FONT_SIZE,
             GAME_OVER_COLOR,
@@ -210,8 +203,6 @@ class Renderer:
         self._back_to_menu_button.render(canvas_img)
 
     def _draw_disconnect_countdown(self, canvas_img):
-        # Only present on network games (RemoteGameEngine) -- the local GameEngine
-        # used by the single-machine mode has no such attribute at all.
         countdown = getattr(self.game_engine, "disconnect_countdown", None)
         if not countdown:
             return
@@ -226,9 +217,9 @@ class Renderer:
         )
 
     def _draw_selection(self, canvas_img):
-        if self.controller.selected is None:
+        if self.controller.selected_pos is None:
             return
-        row, col = self.controller.selected["pos"]
+        row, col = self.controller.selected_pos
         x = self.board_offset_x + col * self.square_size
         y = self.board_offset_y + row * self.square_size
         cv2.rectangle(
@@ -241,8 +232,8 @@ class Renderer:
 
     def _draw_history_panels(self, canvas_img):
         board_width = self.board.width * self.square_size
-        white_moves = [m for m in self.move_history if token_color(m["token"]) == "w"]
-        black_moves = [m for m in self.move_history if token_color(m["token"]) == "b"]
+        white_moves = [m for m in self.move_history if token_color(m["token"]) == WHITE]
+        black_moves = [m for m in self.move_history if token_color(m["token"]) == BLACK]
         self._draw_panel(canvas_img, white_moves, 0, "White")
         self._draw_panel(canvas_img, black_moves, self.board_offset_x + board_width, "Black")
 
@@ -279,7 +270,7 @@ class Renderer:
         from_row, from_col = move[MOVE_FROM_KEY]
         to_row, to_col = move[MOVE_TO_KEY]
         text = f"{move['token']} ({from_col},{from_row})->({to_col},{to_row})"
-        if move.get("captured_token", ".") != ".":
+        if move.get(CAPTURED_TOKEN_KEY, EMPTY_CELL) != EMPTY_CELL:
             text += " x"
         return text
 

@@ -1,21 +1,18 @@
-"""Home (menu) screen -- shows the logged-in user and offers Play/Room,
-mirroring the two options client/cli/home.py already sends today.
-"""
-
 from client.network.app_bridge import CONNECTION_LOST, RESPONSE
 from client.ui.img import Img
 from client.ui.screens.base_screen import Screen
 from client.ui.screens.matchmaking_screen import MatchmakingScreen
 from client.ui.screens.room_screen import RoomScreen
 from client.ui.widgets import Button, ErrorText, Label
+from shared.config import MENU_CHOICE_PLAY, MENU_CHOICE_ROOM, MSG_MENU_SELECT
 from shared.protocol import Envelope
 
 STATUS_IDLE = "idle"
 STATUS_WAITING_ACK = "waiting_ack"
 STATUS_DISCONNECTED = "disconnected"
 
-CHOICE_PLAY = "play"
-CHOICE_ROOM = "room"
+CHOICE_PLAY = MENU_CHOICE_PLAY
+CHOICE_ROOM = MENU_CHOICE_ROOM
 
 DISCONNECTED_MESSAGE = "Disconnected from server."
 
@@ -73,9 +70,6 @@ class HomeScreen(Screen):
     def handle_click(self, x: int, y: int) -> None:
         if self.status == STATUS_DISCONNECTED:
             if self.back_button.hit_test(x, y):
-                # Imported lazily: login_screen.py imports HomeScreen at module
-                # level, so importing LoginScreen back at module level here
-                # would create a circular import.
                 from client.ui.screens.login_screen import LoginScreen
 
                 self.next_screen = (LoginScreen, {})
@@ -92,7 +86,7 @@ class HomeScreen(Screen):
     def _select(self, choice: str) -> None:
         self.pending_choice = choice
         self.status = STATUS_WAITING_ACK
-        self.bridge.send_request(Envelope(type="menu_select", payload={"choice": choice}))
+        self.bridge.send_request(Envelope(type=MSG_MENU_SELECT, payload={"choice": choice}))
 
     def render(self, canvas: Img) -> None:
         Label(x=TITLE_X, y=TITLE_Y, text="Home", font_size=1.0).render(canvas)

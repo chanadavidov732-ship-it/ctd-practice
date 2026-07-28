@@ -14,6 +14,21 @@ from server.network.ws_routes import (
     handle_move,
     handle_jump,
 )
+from shared.config import (
+    MSG_CANCEL_PLAY,
+    MSG_CANCEL_ROOM,
+    MSG_CREATE_ROOM,
+    MSG_ECHO,
+    MSG_JOIN_ROOM,
+    MSG_JUMP,
+    MSG_LOGIN,
+    MSG_MENU_SELECT,
+    MSG_MOVE,
+    MSG_PLAY,
+    MSG_PLAY_CANCELLED,
+    MSG_REGISTER,
+    MSG_ROOM_STATE,
+)
 
 # --- Game session tick loop -------------------------------------------------
 TICK_MS = 100
@@ -24,13 +39,11 @@ DISCONNECT_RESIGN_SECONDS = 20
 K_FACTOR = 32
 
 # --- Matchmaking --------------------------------------------------------------
-MATCH_ID_ALPHABET = string.ascii_uppercase + string.digits
-MATCH_ID_LENGTH = 6
 RATING_RANGE = 100
 
-# --- Rooms ----------------------------------------------------------------------
-ROOM_ID_ALPHABET = string.ascii_uppercase + string.digits
-ROOM_ID_LENGTH = 6
+# --- Short random IDs (matches and rooms share the same shape) -------------
+ID_ALPHABET = string.ascii_uppercase + string.digits
+ID_LENGTH = 6
 
 # --- Database / auth ------------------------------------------------------------
 DB_PATH = pathlib.Path(__file__).parent / "db" / "chess.db"
@@ -39,24 +52,24 @@ PBKDF2_ITERATIONS = 200_000
 
 # --- WebSocket routing ------------------------------------------------------------
 RESPONSE_TYPE = {
-    "login": "login_result",
-    "register": "register_result",
-    "menu_select": "menu_ack",
-    "create_room": "room_state",
-    "cancel_room": "room_state",
-    "cancel_play": "play_cancelled",
+    MSG_LOGIN: "login_result",
+    MSG_REGISTER: "register_result",
+    MSG_MENU_SELECT: "menu_ack",
+    MSG_CREATE_ROOM: MSG_ROOM_STATE,
+    MSG_CANCEL_ROOM: MSG_ROOM_STATE,
+    MSG_CANCEL_PLAY: MSG_PLAY_CANCELLED,
 }
 
 HANDLERS = {
-    "echo": handle_echo,
-    "login": handle_login,
-    "register": handle_register,
-    "menu_select": handle_menu_select,
-    "create_room": handle_create_room,
-    "join_room": handle_join_room,
-    "cancel_room": handle_cancel_room,
-    "play": handle_play,
-    "cancel_play": handle_cancel_play,
-    "move": handle_move,
-    "jump": handle_jump,
+    MSG_ECHO: handle_echo,
+    MSG_LOGIN: handle_login,
+    MSG_REGISTER: handle_register,
+    MSG_MENU_SELECT: handle_menu_select,
+    MSG_CREATE_ROOM: handle_create_room,
+    MSG_JOIN_ROOM: handle_join_room,
+    MSG_CANCEL_ROOM: handle_cancel_room,
+    MSG_PLAY: handle_play,
+    MSG_CANCEL_PLAY: handle_cancel_play,
+    MSG_MOVE: handle_move,
+    MSG_JUMP: handle_jump,
 }

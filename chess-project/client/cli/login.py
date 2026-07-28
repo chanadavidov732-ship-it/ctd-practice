@@ -1,17 +1,17 @@
 import asyncio
 import logging
 
+from client.config import SERVER_URI
 from client.network.connection import ServerConnection
+from shared.config import MSG_LOGIN, MSG_REGISTER
 from shared.protocol import Envelope
 
 logger = logging.getLogger("client")
 
-SERVER_URI = "ws://127.0.0.1:8000/ws"
-
 
 async def do_login(connection: ServerConnection) -> bool:
     choice = input("1) Login  2) Register\n> ").strip()
-    action = "register" if choice == "2" else "login"
+    action = MSG_REGISTER if choice == "2" else MSG_LOGIN
 
     username = input("Username: ").strip()
     password = input("Password: ").strip()

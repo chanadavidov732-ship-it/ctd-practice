@@ -126,9 +126,6 @@ def test_pawn_promotes_to_queen_on_last_row():
 
 
 def test_pawn_promotes_to_queen_when_destination_row_and_col_differ():
-    """Destination (0,3) has row != col, unlike the (0,0) case above -- this is
-    the case that would have caught a previous bug where the promotion check
-    read the wrong tuple index for the destination row."""
     rows = [ROW, "wP wP wP wP wP wP wP wP"] + [ROW] * 6
     board, state, engine, controller = make_setup(rows)
 

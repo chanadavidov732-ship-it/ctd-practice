@@ -1,13 +1,10 @@
-"""Graphical Login/Register screen -- the graphical flow's entry point
-(wired up in client/main.py from this iteration onward).
-"""
-
-from client.cli.login import SERVER_URI
+from client.config import SERVER_URI
 from client.network.app_bridge import BROADCAST, CONNECTED, CONNECTION_LOST, RESPONSE
 from client.ui.img import Img
 from client.ui.screens.base_screen import Screen
 from client.ui.screens.home_screen import HomeScreen
 from client.ui.widgets import Button, ErrorText, Label, TextInput
+from shared.config import MSG_LOGIN, MSG_REGISTER
 from shared.protocol import Envelope
 
 STATUS_CONNECTING = "connecting"
@@ -15,8 +12,8 @@ STATUS_CONNECT_ERROR = "connect_error"
 STATUS_FORM = "form"
 STATUS_SUBMITTING = "submitting"
 
-MODE_LOGIN = "login"
-MODE_REGISTER = "register"
+MODE_LOGIN = MSG_LOGIN
+MODE_REGISTER = MSG_REGISTER
 
 CONNECT_ERROR_MESSAGE = "Could not reach the server."
 EMPTY_FIELDS_MESSAGE = "Username and password are required."
@@ -82,7 +79,7 @@ class LoginScreen(Screen):
             elif event.kind == RESPONSE:
                 self._handle_auth_response(event.envelope.payload)
             elif event.kind == BROADCAST:
-                pass  # not expected on this screen
+                pass
 
     def _handle_auth_response(self, payload: dict) -> None:
         if payload.get("success"):

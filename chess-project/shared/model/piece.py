@@ -1,11 +1,12 @@
+from shared.config import EMPTY_CELL
+
+
 def token_color(token):
-    """מחזיר את צבע הכלי ('w'/'b') או None אם התא ריק."""
-    if token == ".":
+    if token == EMPTY_CELL:
         return None
     return token[0]
 
 def token_type(token):
-    """מחזיר את סוג הכלי ('K','Q','R','B','N','P') או None אם התא ריק."""
-    if token == ".":
+    if token == EMPTY_CELL:
         return None
     return token[1]

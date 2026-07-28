@@ -35,8 +35,6 @@ def test_enemy_collision_results_in_capture():
 # ---------- Invalid premove ----------
 
 def test_premove_onto_piece_still_mid_motion_is_rejected():
-    """ניסיון לשלוח בקשת מהלך שנייה בזמן שכלי אחר עדיין 'באוויר' -
-    נחסם ע"י המנעול הגלובלי, לא מגיע בכלל ל-Rule Engine."""
     rows = [ROW] * 6 + [". . . . . . . .", "wR . . . bN . . ."]
     board, state, engine, controller = make_setup(rows)
 

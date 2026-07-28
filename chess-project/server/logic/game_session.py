@@ -5,7 +5,36 @@ from typing import Optional
 
 from server.engine_adapter.adapter import create_engine
 from server.logic import rating
-from shared.config import MOVE_FROM_KEY, MOVE_TO_KEY
+from shared.config import (
+    AIRBORNE_KEY,
+    BLACK,
+    BLACK_USERNAME_KEY,
+    CAPTURED_KEY,
+    CAPTURED_TOKEN_KEY,
+    CLOCK_KEY,
+    KING,
+    LOCKED_KEY,
+    MOVE_COMPLETION_TIME_KEY,
+    MOVE_DURATION_KEY,
+    MOVE_FROM_KEY,
+    MOVE_TOKEN_KEY,
+    MOVE_TO_KEY,
+    MSG_DISCONNECT_COUNTDOWN,
+    MSG_GAME_OVER,
+    MSG_GAME_STARTED,
+    MSG_GAME_UPDATE,
+    MSG_JUMP_REJECTED,
+    MSG_MOVE_REJECTED,
+    PENDING_MOVES_KEY,
+    POS_KEY,
+    RESTING_DURATION_KEY,
+    RESTING_KEY,
+    RESTING_UNTIL_KEY,
+    SETTLED_MOVES_KEY,
+    WHITE,
+    WHITE_USERNAME_KEY,
+    YOUR_COLOR_KEY,
+)
 from shared.model.piece import token_color, token_type
 from shared.protocol import Envelope
 from shared.rules import rule_engine
@@ -53,15 +82,15 @@ class GameSession:
     async def start(self) -> None:
         base_payload = self._state_payload()
         for p in self.players:
-            await self._safe_send(p.websocket, Envelope(type="game_started", payload={**base_payload, "your_color": p.color}))
+            await self._safe_send(p.websocket, Envelope(type=MSG_GAME_STARTED, payload={**base_payload, YOUR_COLOR_KEY: p.color}))
         for viewer_ws in self.viewers:
-            await self._safe_send(viewer_ws, Envelope(type="game_started", payload={**base_payload, "your_color": None}))
+            await self._safe_send(viewer_ws, Envelope(type=MSG_GAME_STARTED, payload={**base_payload, YOUR_COLOR_KEY: None}))
         self._tick_task = asyncio.create_task(self._tick_loop())
 
     async def add_viewer(self, websocket) -> None:
         self.viewers.append(websocket)
-        payload = {**self._state_payload(), "your_color": None}
-        await self._safe_send(websocket, Envelope(type="game_update", payload=payload))
+        payload = {**self._state_payload(), YOUR_COLOR_KEY: None}
+        await self._safe_send(websocket, Envelope(type=MSG_GAME_UPDATE, payload=payload))
 
     async def handle_move(self, client_id: str, from_pos: tuple, to_pos: tuple) -> None:
         if self._finished:
@@ -72,7 +101,7 @@ class GameSession:
 
         reason = validate_move(self.board, color, from_pos, to_pos)
         if reason != rule_engine.OK:
-            await self._send_to(client_id, "move_rejected", {"reason": reason})
+            await self._send_to(client_id, MSG_MOVE_REJECTED, {"reason": reason})
             return
 
         self.engine.request_move(from_pos, to_pos)
@@ -86,7 +115,7 @@ class GameSession:
 
         reason = validate_jump(self.board, color, pos)
         if reason != rule_engine.OK:
-            await self._send_to(client_id, "jump_rejected", {"reason": reason})
+            await self._send_to(client_id, MSG_JUMP_REJECTED, {"reason": reason})
             return
 
         self.engine.request_jump(pos)
@@ -100,53 +129,40 @@ class GameSession:
         self._disconnect_task = asyncio.create_task(self._auto_resign_countdown(player))
 
     async def _auto_resign_countdown(self, disconnected_player: PlayerSlot) -> None:
-        from server.config import DISCONNECT_RESIGN_SECONDS  # deferred: server.config imports
-        # ws_routes (for HANDLERS), which reaches this module at import time -- a top-level
-        # import here would be circular.
-
         try:
-            for remaining in range(DISCONNECT_RESIGN_SECONDS, 0, -1):
-                if self._finished:
-                    return
-                await self._broadcast(Envelope(type="disconnect_countdown", payload={
-                    "session_id": self.session_id,
-                    "disconnected_username": disconnected_player.username,
-                    "seconds_remaining": remaining,
-                }))
-                await asyncio.sleep(1)
-
-            if self._finished:
-                return
-            winner_color = "b" if disconnected_player.color == "w" else "w"
-            await self._finish_game(winner_color, reason="disconnect")
+            resigned = await self._broadcast_disconnect_countdown(disconnected_player)
+            if not resigned and not self._finished:
+                winner_color = BLACK if disconnected_player.color == WHITE else WHITE
+                await self._finish_game(winner_color, reason="disconnect")
         except asyncio.CancelledError:
             pass
         except Exception:
             logger.exception("session %s: auto-resign countdown failed", self.session_id)
 
+    async def _broadcast_disconnect_countdown(self, disconnected_player: PlayerSlot) -> bool:
+        from server.config import DISCONNECT_RESIGN_SECONDS
+
+        for remaining in range(DISCONNECT_RESIGN_SECONDS, 0, -1):
+            if self._finished:
+                return True
+            await self._broadcast(Envelope(type=MSG_DISCONNECT_COUNTDOWN, payload={
+                "session_id": self.session_id,
+                "disconnected_username": disconnected_player.username,
+                "seconds_remaining": remaining,
+            }))
+            await asyncio.sleep(1)
+        return self._finished
+
     async def _tick_loop(self) -> None:
-        from server.config import TICK_INTERVAL_SECONDS, TICK_MS  # deferred: see the note in
-        # _auto_resign_countdown above -- same circular-import reason.
+        from server.config import TICK_INTERVAL_SECONDS, TICK_MS
 
         try:
             while not self._finished:
                 await asyncio.sleep(TICK_INTERVAL_SECONDS)
-                locked_before = set(self.game_state.locked)
-                resting_before = set(self.game_state.resting)
-                airborne_before = set(self.game_state.airborne)
+                before = self._snapshot_lock_state()
                 settled = self.engine.advance_time(TICK_MS)
-                # A position whose lock/rest/airborne state just cleared this tick must be
-                # broadcast even though nothing is "active" anymore, otherwise clients keep
-                # treating that square as locked forever (until some other move happens to
-                # trigger the next broadcast).
-                freed = (
-                    (locked_before - self.game_state.locked)
-                    or (resting_before - set(self.game_state.resting))
-                    or (airborne_before - set(self.game_state.airborne))
-                )
-                # Broadcast on every tick that has anything actually happening (a move/jump
-                # in flight, a piece resting, or something just settled) so clients can
-                # interpolate smooth motion; skip broadcasting while the board is fully idle.
+                freed = self._locks_freed_since(before)
+
                 anything_active = (
                     settled
                     or self.game_state.pending_moves
@@ -155,62 +171,78 @@ class GameSession:
                     or freed
                 )
                 if anything_active:
-                    await self._broadcast(Envelope(type="game_update", payload=self._state_payload(settled)))
+                    await self._broadcast(Envelope(type=MSG_GAME_UPDATE, payload=self._state_payload(settled)))
 
+                winner_color = self._winner_from_settled(settled)
+                if winner_color is not None:
+                    await self._finish_game(winner_color)
                 if self.engine.is_over:
-                    loser_color = next(
-                        (token_color(m["captured_token"]) for m in settled if token_type(m["captured_token"]) == "K"),
-                        None,
-                    )
-                    if loser_color is not None:
-                        winner_color = "b" if loser_color == "w" else "w"
-                        await self._finish_game(winner_color)
                     break
         except asyncio.CancelledError:
             pass
         except Exception:
             logger.exception("session %s: tick loop failed", self.session_id)
 
+    def _snapshot_lock_state(self) -> tuple[set, set, set]:
+        return set(self.game_state.locked), set(self.game_state.resting), set(self.game_state.airborne)
+
+    def _locks_freed_since(self, before: tuple[set, set, set]):
+        locked_before, resting_before, airborne_before = before
+        return (
+            (locked_before - self.game_state.locked)
+            or (resting_before - set(self.game_state.resting))
+            or (airborne_before - set(self.game_state.airborne))
+        )
+
+    def _winner_from_settled(self, settled) -> str | None:
+        if not self.engine.is_over:
+            return None
+        loser_color = next(
+            (token_color(m[CAPTURED_TOKEN_KEY]) for m in settled if token_type(m[CAPTURED_TOKEN_KEY]) == KING),
+            None,
+        )
+        if loser_color is None:
+            return None
+        return BLACK if loser_color == WHITE else WHITE
+
     def _state_payload(self, settled=None) -> dict:
         return {
             "session_id": self.session_id,
             "board": [row[:] for row in self.board.grid],
-            "clock": self.game_state.clock,
-            "locked": [list(pos) for pos in self.game_state.locked],
-            "pending_moves": [
+            CLOCK_KEY: self.game_state.clock,
+            LOCKED_KEY: [list(pos) for pos in self.game_state.locked],
+            PENDING_MOVES_KEY: [
                 {
                     MOVE_FROM_KEY: list(m[MOVE_FROM_KEY]),
                     MOVE_TO_KEY: list(m[MOVE_TO_KEY]),
-                    "token": m["token"],
-                    "completion_time": m["completion_time"],
-                    "duration": m["duration"],
+                    MOVE_TOKEN_KEY: m[MOVE_TOKEN_KEY],
+                    MOVE_COMPLETION_TIME_KEY: m[MOVE_COMPLETION_TIME_KEY],
+                    MOVE_DURATION_KEY: m[MOVE_DURATION_KEY],
                 }
                 for m in self.game_state.pending_moves
             ],
-            "resting": [
-                {"pos": list(pos), "until": until, "duration": self.game_state.resting_duration.get(pos)}
+            RESTING_KEY: [
+                {POS_KEY: list(pos), RESTING_UNTIL_KEY: until, RESTING_DURATION_KEY: self.game_state.resting_duration.get(pos)}
                 for pos, until in self.game_state.resting.items()
             ],
-            "airborne": [{"pos": list(pos), "until": until} for pos, until in self.game_state.airborne.items()],
-            "settled_moves": [
+            AIRBORNE_KEY: [{POS_KEY: list(pos), RESTING_UNTIL_KEY: until} for pos, until in self.game_state.airborne.items()],
+            SETTLED_MOVES_KEY: [
                 {
                     MOVE_FROM_KEY: list(m[MOVE_FROM_KEY]),
                     MOVE_TO_KEY: list(m[MOVE_TO_KEY]),
-                    "token": m["token"],
-                    "captured": m["captured_token"],
+                    MOVE_TOKEN_KEY: m[MOVE_TOKEN_KEY],
+                    CAPTURED_KEY: m[CAPTURED_TOKEN_KEY],
                 }
                 for m in (settled or [])
             ],
-            "white_username": next(p.username for p in self.players if p.color == "w"),
-            "black_username": next(p.username for p in self.players if p.color == "b"),
+            WHITE_USERNAME_KEY: next(p.username for p in self.players if p.color == WHITE),
+            BLACK_USERNAME_KEY: next(p.username for p in self.players if p.color == BLACK),
         }
 
     async def _finish_game(self, winner_color: str, reason: str = "king_captured") -> None:
         if self._finished:
             return
         self._finished = True
-        # Don't cancel ourselves: _finish_game is also called from within
-        # _auto_resign_countdown's own task once its 20s countdown completes.
         if (
             self._disconnect_task is not None
             and self._disconnect_task is not asyncio.current_task()
@@ -229,7 +261,7 @@ class GameSession:
             new_ratings = {winner.username: new_winner_rating, loser.username: new_loser_rating}
 
         logger.info("game over: session_id=%s winner=%s (%s) reason=%s", self.session_id, winner.username, winner_color, reason)
-        await self._broadcast(Envelope(type="game_over", payload={
+        await self._broadcast(Envelope(type=MSG_GAME_OVER, payload={
             "session_id": self.session_id,
             "winner_color": winner_color,
             "winner_username": winner.username,
@@ -269,14 +301,14 @@ class GameSessionManager:
         return self._by_room_id.get(room_id)
 
     async def start_for_match(self, match_id: str, player_a, player_b) -> GameSession:
-        players = [_slot(player_a, "w"), _slot(player_b, "b")]
+        players = [_slot(player_a, WHITE), _slot(player_b, BLACK)]
         session = GameSession(session_id=match_id, players=players)
         self._register(session)
         await session.start()
         return session
 
     async def start_for_room(self, room_id: str, player_a, player_b, viewer_websockets: list) -> GameSession:
-        players = [_slot(player_a, "w"), _slot(player_b, "b")]
+        players = [_slot(player_a, WHITE), _slot(player_b, BLACK)]
         session = GameSession(session_id=room_id, players=players, viewers=viewer_websockets, room_id=room_id)
         self._register(session)
         self._by_room_id[room_id] = session

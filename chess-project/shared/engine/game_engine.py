@@ -1,3 +1,4 @@
+from shared.config import EMPTY_CELL
 from shared.model.piece import token_type, token_color
 from shared.rules import rule_engine
 from shared.realtime.motion import calculate_duration, DEFAULT_SPEED, JUMP_DURATION_MS
@@ -14,15 +15,12 @@ class GameEngine:
         return pos in self.game_state.locked or pos in self.game_state.resting  
     
     def request_move(self, from_pos, to_pos):
-        # 1. האם המשחק נגמר?
         if self.is_over:
             return
 
-        # 2. האם יש כבר תנועה פעילה (או השהיה) על הכלי הזה?
         if self.is_locked(from_pos):
             return
 
-        # 3. האם ה-Rule Engine מאשר?
         token = self.board.get_piece(from_pos)
         piece_type = token_type(token)
         piece_color = token_color(token)
@@ -30,7 +28,6 @@ class GameEngine:
         if result != rule_engine.OK:
             return
 
-        # 4. התחלת Motion
         token = self.board.get_piece(from_pos)
         duration = calculate_duration(from_pos, to_pos, self.speed)
         completion_time = self.game_state.clock + duration
@@ -50,6 +47,6 @@ class GameEngine:
             return
         if pos in self.game_state.airborne:               
             return
-        if self.board.get_piece(pos) == ".":       
+        if self.board.get_piece(pos) == EMPTY_CELL:
             return
         self.arbiter.start_jump(pos)

@@ -3,11 +3,19 @@ import contextlib
 
 from client.network.connection import ServerConnection
 from client.network.game_bridge import GameBridge, build_remote_engine, pump_game_messages
+from shared.config import (
+    MATCH_TIMEOUT_SECONDS,
+    MSG_CANCEL_PLAY,
+    MSG_GAME_STARTED,
+    MSG_MATCH_FOUND,
+    MSG_MATCH_TIMEOUT,
+    MSG_PLAY,
+)
 from shared.protocol import Envelope
 
 
 async def run_play_menu(connection: ServerConnection, bridge: GameBridge) -> None:
-    await connection.send(Envelope(type="play", payload={}))
+    await connection.send(Envelope(type=MSG_PLAY, payload={}))
     response = await connection.receive()
     payload = response.payload
 
@@ -27,18 +35,18 @@ async def _wait_for_match(connection: ServerConnection, bridge: GameBridge) -> N
         nonlocal resolved, game_started_payload
         while True:
             envelope = await connection.receive()
-            if envelope.type == "match_found":
+            if envelope.type == MSG_MATCH_FOUND:
                 opponent = envelope.payload
                 print(
                     f"Match found! Opponent: {opponent.get('opponent_username')} "
                     f"(rating: {opponent.get('opponent_rating')})"
                 )
-            elif envelope.type == "game_started":
+            elif envelope.type == MSG_GAME_STARTED:
                 game_started_payload = envelope.payload
                 resolved = True
                 return
-            elif envelope.type == "match_timeout":
-                print("No opponent found within 60 seconds.")
+            elif envelope.type == MSG_MATCH_TIMEOUT:
+                print(f"No opponent found within {MATCH_TIMEOUT_SECONDS} seconds.")
                 resolved = True
                 return
 
@@ -63,8 +71,8 @@ async def _wait_for_match(connection: ServerConnection, bridge: GameBridge) -> N
         return
 
     if resolved:
-        return  # match_timeout
+        return  
 
-    await connection.send(Envelope(type="cancel_play", payload={}))
+    await connection.send(Envelope(type=MSG_CANCEL_PLAY, payload={}))
     response = await connection.receive()
     print(f"server: {response.payload}")

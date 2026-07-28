@@ -5,7 +5,11 @@ class Controller:
         self.board = board
         self.board_mapper = board_mapper
         self.game_engine = game_engine
-        self.selected = None 
+        self.selected = None
+
+    @property
+    def selected_pos(self):
+        return self.selected["pos"] if self.selected is not None else None
 
     def handle_click(self, x, y):
         pos = self.board_mapper.pixel_to_cell(x, y)
@@ -18,20 +22,15 @@ class Controller:
         color = token_color(token)
 
         if self.selected is None:
-            # Selecting a piece: a locked/resting piece can't be picked up.
             if color is not None and not self.game_engine.is_locked(pos):
                 self.selected = {"pos": pos, "color": color}
             return
 
         if color is not None and color == self.selected["color"]:
-            # Switching selection to another friendly piece: same rule applies.
             if not self.game_engine.is_locked(pos):
                 self.selected = {"pos": pos, "color": color}
             return
 
-        # Move/capture target: whether *this* cell is locked/resting doesn't
-        # matter here - a locked/resting enemy piece can still be captured.
-        # GameEngine.request_move already gates on the mover's own lock state.
         from_pos = self.selected["pos"]
         self.selected = None
         self.game_engine.request_move(from_pos, pos)

@@ -51,11 +51,11 @@ The project follows strict separation of concerns. **Core principle**: every lay
 ## 3. Technologies
 
 - **Python 3.13**
-- **pytest** (`pytest.ini` at repo root: `pythonpath = .`, `testpaths = tests`) — 117 tests passing as of this writing, all under `tests/unit/`.
+- **pytest** (`pytest.ini` at repo root: `pythonpath = .`, `testpaths = tests`) — 118 tests passing as of this writing, all under `tests/unit/`.
 - **Server** (`server/requirements.txt`): `fastapi`, `uvicorn[standard]`. Plus stdlib `sqlite3`, `hashlib`/`secrets` (PBKDF2-HMAC-SHA256 password hashing, 200,000 iterations, random per-user salt — real hashing, not plaintext).
 - **Client** (`client/requirements.txt`): `websockets`. Plus `opencv-python` (`cv2`) and `numpy` for the graphical layer — **still not declared in any requirements file**, same open item as before the reorg (see section 10).
 - I/O for the legacy text-mode path is via `stdin`/`stdout`, unchanged from the original design.
-- Networking: plain WebSocket at `ws://127.0.0.1:8000/ws` (see `client/cli/login.py::SERVER_URI`), one FastAPI route (`server/network/ws_routes.py`), one message envelope shape for everything (`shared/protocol.py::Envelope`).
+- Networking: plain WebSocket at `ws://127.0.0.1:8000/ws` (see `client/config.py::SERVER_URI`), one FastAPI route (`server/network/ws_routes.py`), one message envelope shape for everything (`shared/protocol.py::Envelope`).
 
 ---
 
@@ -79,14 +79,13 @@ chess-project/
 ├── shared/                        # the ORIGINAL logic layers, unmodified in behavior, moved here in the reorg
 │   ├── protocol.py                 # Envelope(type, payload, request_id, ts) — the one message shape used everywhere
 │   ├── model/
-│   │   ├── position.py               # Position namedtuple (col,row) — most code still uses raw tuples
+│   │   ├── position.py               # Position namedtuple (row,col) — most code still uses raw tuples
 │   │   ├── piece.py                  # token_color(), token_type()
 │   │   ├── board.py                  # Board: grid, get/set_piece, is_inside, height/width
 │   │   ├── game_state.py             # GameState: clock, pending_moves, locked, resting, resting_duration, airborne
 │   │   └── standard_setup.py         # STANDARD_START_GRID — the 8x8 starting position
 │   ├── rules/
-│   │   ├── piece_rules.py            # MOVEMENT_VALIDATORS, is_legal_move, pawn_start_row/promotion_row/is_legal_pawn_*
-│   │   ├── piece_registry.py         # PIECE_TYPES, COLORS
+│   │   ├── piece_rules.py            # MOVEMENT_VALIDATORS, is_legal_move, pawn_start_row/promotion_row/is_legal_pawn_* (PIECE_TYPES/COLORS themselves now live in shared/config.py, not a separate piece_registry.py)
 │   │   ├── rule_engine.py            # check_move() — the central legality function (OK/OUT_OF_BOUNDS/ILLEGAL_SHAPE/BLOCKED/FRIENDLY_FIRE)
 │   │   └── move_validator.py         # [new, server-flow only] validate_move/validate_jump — bounds+ownership pre-check, used by both server's authoritative check and RemoteGameEngine's client-side pre-check
 │   ├── realtime/
@@ -96,6 +95,7 @@ chess-project/
 │       └── game_engine.py            # GameEngine: request_move, request_jump, advance_time, is_over, is_locked
 ├── server/
 │   ├── main.py                     # FastAPI app; registers all bus listeners + init_db() at import time; uvicorn.run under __main__
+│   ├── config.py                   # server-side constants: TICK_MS/TICK_INTERVAL_SECONDS, DISCONNECT_RESIGN_SECONDS, K_FACTOR, RATING_RANGE, ID_ALPHABET/ID_LENGTH, DB_PATH/SCHEMA_PATH/PBKDF2_ITERATIONS, HANDLERS/RESPONSE_TYPE
 │   ├── auth/
 │   │   └── auth.py                   # async login(username,password)/register(username,password) -> {"success","message"[,"rating"]}
 │   ├── db/
@@ -106,6 +106,7 @@ chess-project/
 │   │   ├── rating.py                  # ELO: K_FACTOR=32, expected_score, new_rating, apply_match_result (no draw support — score_a is always 1)
 │   │   ├── matchmaking.py             # Matchmaking: enqueue/find_opponent(±100 rating)/remove, QueuedPlayer, 6-char match IDs
 │   │   ├── room_manager.py            # RoomManager: create_room/join_room/leave_room, 6-char room IDs, players[0]=white/[1]=black, 3rd+ joiner=viewer
+│   │   ├── id_gen.py                  # generate_id(alphabet, length, is_taken=None) — shared random-ID generator; both matchmaking.py and room_manager.py call this instead of duplicating the logic
 │   │   └── game_session.py            # GameSession: 100ms tick loop, DISCONNECT_RESIGN_SECONDS=20, broadcasts game_update/game_over/disconnect_countdown
 │   ├── engine_adapter/
 │   │   └── adapter.py                 # create_engine() -> (board, game_state, arbiter, engine) — the one place server builds shared/ objects
@@ -137,6 +138,7 @@ chess-project/
     └── ui/
         ├── UI_DESIGN.md              # renderer/sprite internals for the LOCAL board — predates the client/server split; its own folder-structure section is stale, but the rendering/animation content is still accurate (see note below)
         ├── img.py                    # Img: OpenCV/numpy helper — read/resize, draw_on, put_text, show
+        ├── keyboard_layout.py         # force_english_layout()/restore_layout() — Windows-only fix so cv2.waitKey() reliably captures plain ASCII when the OS's active input language isn't English (bugfix; called from screen_manager.py around the wrapper-screen loop)
         ├── renderer.py                # Renderer — draws the board+pieces+panels+game-over overlay; shared by local and networked play alike
         ├── sprite_manager.py          # SpriteManager.determine_state() — idle/move/jump/short_rest/long_rest, reads GameState fields only
         ├── widgets.py                 # Button/TextInput/Label/ErrorText — generic Img-based widgets, used by every wrapper screen
@@ -150,6 +152,8 @@ chess-project/
 ```
 
 **Note on `.claude/CLIENT_SERVER_PLAN.md`**: the detailed, iteration-by-iteration client/server spec (auth/matchmaking/rooms/graphical-screens design, decisions, and per-iteration acceptance criteria — sections 5/6 below only summarize its conclusions) currently lives at `.claude/CLIENT_SERVER_PLAN.md`, **untracked**, while `CLIENT_SERVER_PLAN.md` at the repo root shows as deleted in `git status` (unstaged). This predates this document's rewrite — it's flagged here as an open item (section 10), not something this rewrite fixed.
+
+**Note on `.claude/UI_IMPLEMENTATION_PLAN.md`**: the earlier, narrower plan (also untracked) for building the *local* graphical board on top of the already-working textual logic — iterations 1–12 covering the static board, sprite/animation states, click/jump handling, game-over overlay, move history, and the rest/lock verification pass. `CLIENT_SERVER_PLAN.md` picks up from where this one leaves off (it explicitly builds atop the finished local graphical board). Kept only for historical iteration rationale — everything it describes is already implemented and summarized in sections 5/6/8 below.
 
 ### Files critical to understanding the architecture (read these first)
 
@@ -259,6 +263,8 @@ chess-project/
 21. **The legacy game loop (`_run_graphical_game`, originally in `client/main.py` before the graphical Login/Home rewrite) was resurrected as `client/ui/game_runner.py::run_graphical_game`**, adapted to pull game messages from `AppBridge.poll_events()` per frame instead of a separate `asyncio` task reading the connection directly — `AppBridge` already owns the one continuous receive loop on the network thread, so a second concurrent reader on the same connection was never an option once wrapper screens (not just the CLI) needed the connection too.
 22. **"Back to Menu" is a button drawn inside the existing game window** (`Renderer`, once `is_over`), not a separate screen — the one deliberate, pre-approved touch to `renderer.py` in the whole 11–16 iteration batch. Returning to `HomeScreen` afterward reuses the same connection (no re-login). A consequence not anticipated by the original design doc: since `Renderer` always destroys its `cv2` window on any exit (quit or menu), `ScreenManager` has to explicitly recreate the window + mouse callback on every screen transition, or the resumed wrapper screen would render into a dead/uncallbacked window.
 23. **Viewers who join a room mid-game stay on the room wait screen in "viewer" status** — no live spectator board rendering exists yet, in the graphical flow or the legacy CLI one. Explicitly deferred, not a regression (see section 9).
+24. **Keyboard layout is forced to English (US) while any text-entry wrapper screen is open** (`client/ui/keyboard_layout.py::force_english_layout`/`restore_layout`, Windows-only, called around `ScreenManager`'s loop) — `cv2.waitKey()` has no IME/Unicode awareness and returns whatever the OS's *currently active* input language produces, so under a non-Latin layout the same physical letter keys were silently dropped by `TextInput.handle_key`'s plain-ASCII check. Fixed at the OS-input-language level since `cv2` itself never sees a layout-independent key code.
+25. **Room/match ID generation was unified**: `server/logic/id_gen.py::generate_id(alphabet, length, is_taken)` is the one place that generates a random ID and retries on collision; both `Matchmaking.generate_match_id()` and `RoomManager`'s room-ID generator call it with the same `ID_ALPHABET`/`ID_LENGTH` now defined once in `server/config.py`, instead of duplicating the pattern (resolves the TODO item that used to be listed in section 10).
 
 ---
 
@@ -297,7 +303,6 @@ chess-project/
 - [ ] Declare `opencv-python`/`numpy` as real dependencies somewhere (`client/requirements.txt` currently only lists `websockets`).
 - [ ] Reconcile `speed_m_per_sec` (in `client/ui/game_snapshot/**/config.json`) against `shared/realtime/motion.py`'s `DEFAULT_SPEED`/Chebyshev distance — still unreconciled; the renderer ended up using `frames_per_sec` for animation timing instead, so this was never actually forced.
 - [ ] If a live spectator board is ever needed (section 9), decide whether it reuses `Renderer` in a read-only mode or gets its own component.
-- [ ] `Matchmaking.generate_match_id()` and `RoomManager`'s room-ID generator use the same alphabet/length pattern but are separate, duplicated constants (`server/logic/matchmaking.py` vs `server/logic/room_manager.py`) — could be unified if a third ID-generating use case ever appears; not worth touching for its own sake.
 - [ ] `bus/events.py`'s `ClientConnected` currently has no functional subscriber (logging only) — a natural extension point if presence-tracking or similar is ever needed, but nothing depends on it today.
 - [ ] When adding custom piece types (future) — avoid hardcoded `if piece_type == "X"` branches; extend `shared/rules/piece_registry.py` into a real data-driven registry instead.
 - [ ] Consider adding a feedback/error channel to `Controller`/`GameEngine` instead of silent `return` on illegal local-mode moves.
@@ -328,7 +333,7 @@ chess-project/
 - `square_size = 100` pixels, fixed, independent of board size.
 - A piece token is always `"{color}{type}"` or `"."` — never accessed as raw `token[0]`/`token[1]` outside `shared/model/piece.py`.
 - `DEFAULT_SPEED=1000`, `JUMP_DURATION_MS=1000`, `LONG_REST_MS=1000`, `SHORT_REST_MS=500` — global constants in `shared/realtime/motion.py`.
-- Server always listens at `ws://127.0.0.1:8000/ws` (`client/cli/login.py::SERVER_URI` — also the value every graphical screen's `AppBridge.connect()` call uses).
+- Server always listens at `ws://127.0.0.1:8000/ws` (`client/config.py::SERVER_URI` — also the value every graphical screen's `AppBridge.connect()` call uses).
 - Starting ELO rating is **1200**; `K_FACTOR=32`; matchmaking rating range is **±100**; match/room IDs are 6-char `[A-Z0-9]` strings.
 - The graphical board window and every wrapper screen share **one** `cv2` window (`WINDOW_NAME = "Image"`, defined in `client/ui/renderer.py`, imported — never redefined — by `client/ui/screen_manager.py`).
 
@@ -342,3 +347,4 @@ chess-project/
 - **The bug-discovery process for the core game logic** relied mainly on external tests (input/expected-output) rather than only internal unit tests — when they conflicted, the external spec won and internal tests were updated (happened with `pawn_start_row` and `DEFAULT_SPEED`). When a test failure comes in, always ask first: is this a real regression, or is the test itself now outdated relative to a deliberate recent change?
 - Keep two future extensions in mind for the core logic: binary board representation, and custom user-defined pieces — evaluate every change to `piece.py`/`piece_rules.py`/`rule_engine.py` against "does this make either harder?"
 - No formal, consolidated commit message convention is enforced, but Conventional Commits style is what's been used so far.
+- **Code style: no explanatory comments or docstrings that just restate what the code does.** The codebase was swept clean of these (module/function docstrings describing behavior, inline "why this branch" comments, circular-import explanations, etc.) — well-named identifiers carry that job instead. Only add a comment when it captures something a reader truly couldn't infer from the code (a hidden constraint, a workaround for a specific external bug) — and even then, keep it to one line.

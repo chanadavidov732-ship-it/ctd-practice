@@ -1,6 +1,6 @@
-from shared.config import PIECE_TYPES, COLORS
+from shared.config import EMPTY_CELL, PIECE_TYPES, COLORS
 
-VALID_TOKENS = {"."} | {c + t for c in COLORS for t in PIECE_TYPES}
+VALID_TOKENS = {EMPTY_CELL} | {c + t for c in COLORS for t in PIECE_TYPES}
 
 
 def read_board():

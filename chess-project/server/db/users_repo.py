@@ -7,15 +7,13 @@ logger = logging.getLogger("server")
 
 
 def _connect() -> sqlite3.Connection:
-    from server.config import DB_PATH  # deferred: server.config imports ws_routes, which
+    from server.config import DB_PATH
 
-    # transitively reaches this module (via rating -> game_session) at import time --
-    # circular otherwise.
     return sqlite3.connect(DB_PATH)
 
 
 def init_db() -> None:
-    from server.config import DB_PATH, SCHEMA_PATH  # deferred: see the note in _connect above.
+    from server.config import DB_PATH, SCHEMA_PATH
 
     with _connect() as conn:
         conn.executescript(SCHEMA_PATH.read_text())
@@ -23,7 +21,7 @@ def init_db() -> None:
 
 
 def _hash_password(password: str, salt: bytes) -> str:
-    from server.config import PBKDF2_ITERATIONS  # deferred: see the note in _connect above.
+    from server.config import PBKDF2_ITERATIONS
 
     return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PBKDF2_ITERATIONS).hex()
 

@@ -1,3 +1,4 @@
+from shared.config import EMPTY_CELL, PAWN
 from shared.model.piece import token_color
 from shared.rules.piece_rules import is_legal_move, is_sliding_piece, is_legal_pawn_move, is_legal_pawn_capture
 
@@ -33,7 +34,7 @@ def check_move(board, piece_type, piece_color, from_pos, to_pos):
     if not board.is_inside(to_pos):
         return OUT_OF_BOUNDS
 
-    if piece_type == "P":
+    if piece_type == PAWN:
         return _check_pawn_move(board, piece_color, from_pos, to_pos)
 
     if not is_legal_move(piece_type, from_pos, to_pos):
@@ -41,11 +42,11 @@ def check_move(board, piece_type, piece_color, from_pos, to_pos):
 
     if is_sliding_piece(piece_type):
         for pos in _squares_between(from_pos, to_pos):
-            if board.get_piece(pos) != ".":
+            if board.get_piece(pos) != EMPTY_CELL:
                 return BLOCKED
 
     dest_token = board.get_piece(to_pos)
-    if dest_token != "." and token_color(dest_token) == piece_color:
+    if dest_token != EMPTY_CELL and token_color(dest_token) == piece_color:
         return FRIENDLY_FIRE
 
     return OK
@@ -60,14 +61,14 @@ def _check_pawn_move(board, piece_color, from_pos, to_pos):
     if is_legal_pawn_move(dx, dy, piece_color, from_row, board.height):
         if abs(dy) == 2:
             mid_pos = (from_pos[0] + dy // 2, from_pos[1])
-            if board.get_piece(mid_pos) != ".":
+            if board.get_piece(mid_pos) != EMPTY_CELL:
                 return BLOCKED
-        if dest_token != ".":
+        if dest_token != EMPTY_CELL:
             return BLOCKED
         return OK
 
     if is_legal_pawn_capture(dx, dy, piece_color):
-        if dest_token == ".":
+        if dest_token == EMPTY_CELL:
             return ILLEGAL_SHAPE
         if token_color(dest_token) == piece_color:
             return FRIENDLY_FIRE

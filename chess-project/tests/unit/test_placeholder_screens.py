@@ -7,11 +7,6 @@ from client.ui.screens.room_screen import RoomScreen
 
 
 class _StubBridge:
-    """Minimal bridge stand-in for screens whose on_enter() sends a request
-    immediately (MatchmakingScreen queues for a match on entry, matching
-    client/cli/play.py's run_play_menu) -- these tests only check on_enter's
-    payload handling and render(), not what gets sent over the network."""
-
     def send_request(self, envelope) -> None:
         pass
 

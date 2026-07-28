@@ -21,7 +21,11 @@
       "Bash(python -c \"import fastapi\")",
       "Bash(python -c \"import pyautogui\")",
       "Bash(python -c \"import pygetwindow\")",
-      "Bash(python -c \"import pywinauto\")"
+      "Bash(python -c \"import pywinauto\")",
+      "Bash(python -c \"from shared.model.piece import token_color, token_type; print\\(token_color\\('.'\\), token_type\\('.'\\), token_color\\('wK'\\)\\)\")",
+      "Bash(python -c \"from client.network.game_bridge import build_remote_engine, apply_game_envelope; print\\('OK'\\)\")",
+      "Bash(python -c \"from client.ui.screen_manager import ScreenManager; print\\('import OK'\\)\")",
+      "Bash(python -c \"from client.ui.screens import matchmaking_screen; print\\('OK', matchmaking_screen.TIMEOUT_MESSAGE\\)\")"
     ]
   }
 }

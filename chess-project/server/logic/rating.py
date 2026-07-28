@@ -8,8 +8,7 @@ def expected_score(rating_a: int, rating_b: int) -> float:
 
 
 def new_rating(rating_a: int, rating_b: int, score_a: float) -> int:
-    from server.config import K_FACTOR  # deferred: server.config imports ws_routes, which
-    # transitively reaches this module (via game_session) at import time -- circular otherwise.
+    from server.config import K_FACTOR
 
     return round(rating_a + K_FACTOR * (score_a - expected_score(rating_a, rating_b)))
 

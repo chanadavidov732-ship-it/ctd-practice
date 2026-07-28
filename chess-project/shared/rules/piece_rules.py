@@ -28,22 +28,17 @@ def _validate_knight(dx, dy):
 
 
 def pawn_promotion_row(color, board_height):
-    """שורת ההכתרה - הקצה הנגדי לשורת המוצא."""
     return 0 if color == "w" else board_height - 1
 
 
 def promote_pawn_if_needed(token, piece_type, color, dest_row, board_height):
-    """מחזיר את הכלי שמגיע ליעד - מוכתר למלכה אם זהו רגלי שהגיע לשורת ההכתרה, אחרת ללא שינוי."""
     if piece_type == "P" and dest_row == pawn_promotion_row(color, board_height):
         return color + "Q"
     return token
 
 
 def is_legal_move(piece_type, from_pos, to_pos):
-    """בודק אך ורק את חוקיות הצורה של המהלך עבור סוג הכלי הנתון."""
-    from shared.config import MOVEMENT_VALIDATORS  # imported here: MOVEMENT_VALIDATORS lives
-    # in shared/config.py but is built from this module's validator functions, so a
-    # top-level import would be circular.
+    from shared.config import MOVEMENT_VALIDATORS
 
     dx = to_pos[0] - from_pos[0]
     dy = to_pos[1] - from_pos[1]
@@ -60,7 +55,6 @@ def is_sliding_piece(piece_type):
     return piece_type in SLIDING_PIECES
 
 def pawn_start_row(color, board_height):
-    """שורת המוצא של רגלי - שורה אחת לפנים מהקצה של אותו צבע."""
     return board_height - 2 if color == "w" else 1
 
 def _pawn_forward_direction(color):

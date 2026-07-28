@@ -12,8 +12,6 @@ from shared.model.standard_setup import STANDARD_START_GRID as DEFAULT_GRID
 
 
 def main():
-    # No piped/redirected stdin (plain `python ui/app.py`) -> just start a
-    # standard game instead of requiring the text board protocol on stdin.
     grid = DEFAULT_GRID if sys.stdin.isatty() else read_board()
 
     error = validate_board(grid)

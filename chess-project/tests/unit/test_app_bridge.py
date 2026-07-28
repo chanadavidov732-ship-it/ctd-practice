@@ -9,9 +9,6 @@ from shared.protocol import Envelope
 
 
 class FakeConnection:
-    """Stands in for ServerConnection: yields a fixed sequence of envelopes,
-    then raises ConnectionClosed, exactly like a real socket dropping."""
-
     def __init__(self, envelopes):
         self._envelopes = list(envelopes)
         self.sent: list[Envelope] = []
@@ -72,7 +69,7 @@ def test_poll_events_drains_the_queue():
     bridge = asyncio.run(scenario())
     first_poll = bridge.poll_events()
     second_poll = bridge.poll_events()
-    assert len(first_poll) == 3  # 2 broadcasts + connection_lost
+    assert len(first_poll) == 3
     assert second_poll == []
 
 
@@ -84,7 +81,7 @@ def test_send_request_assigns_request_id_and_sends_on_the_loop():
         bridge._connection = connection
 
         bridge.send_request(Envelope(type="login", payload={"username": "alice"}))
-        await asyncio.sleep(0)  # let the scheduled coroutine run on this same loop
+        await asyncio.sleep(0)
 
         return bridge, connection
 
@@ -121,7 +118,7 @@ def test_serve_captures_the_running_loop():
     async def scenario():
         bridge = AppBridge()
         task = asyncio.create_task(bridge.serve())
-        await asyncio.sleep(0)  # let serve() start and capture the loop
+        await asyncio.sleep(0)
         loop = bridge._loop
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
@@ -133,13 +130,11 @@ def test_serve_captures_the_running_loop():
 
 
 def test_connect_reports_connection_lost_when_nothing_is_listening():
-    # Nothing listens on this loopback port, so the handshake fails fast
-    # (ECONNREFUSED) without needing a real server for this test.
     async def scenario():
         bridge = AppBridge()
         bridge._loop = asyncio.get_running_loop()
         bridge.connect("ws://127.0.0.1:59999/ws")
-        for _ in range(50):  # up to ~5s for the refused-connection error to surface
+        for _ in range(50):
             if not bridge._events.empty():
                 break
             await asyncio.sleep(0.1)
@@ -151,14 +146,11 @@ def test_connect_reports_connection_lost_when_nothing_is_listening():
 
 
 def test_connect_pushes_connected_before_starting_the_receive_loop():
-    """Exercises _connect_and_run's CONNECTED signal without a real socket by
-    monkeypatching ServerConnection with a fake that "connects" instantly."""
-
     async def scenario(monkeypatch):
         import client.network.app_bridge as app_bridge_module
 
         fake_connection = FakeConnection([])
-        fake_connection.connect = lambda: asyncio.sleep(0)  # no-op "success"
+        fake_connection.connect = lambda: asyncio.sleep(0)
         monkeypatch.setattr(app_bridge_module, "ServerConnection", lambda uri: fake_connection)
 
         bridge = AppBridge()

@@ -3,18 +3,25 @@ import logging
 import queue
 
 from client.network.remote_game_engine import RemoteGameEngine
-from shared.config import MOVE_FROM_KEY, MOVE_TO_KEY
+from shared.config import (
+    MOVE_FROM_KEY,
+    MOVE_TO_KEY,
+    MSG_DISCONNECT_COUNTDOWN,
+    MSG_GAME_OVER,
+    MSG_GAME_UPDATE,
+    MSG_JUMP,
+    MSG_JUMP_REJECTED,
+    MSG_MOVE,
+    MSG_MOVE_REJECTED,
+    POS_KEY,
+    YOUR_COLOR_KEY,
+)
 from shared.protocol import Envelope
 
 logger = logging.getLogger("client")
 
 
 class GameBridge:
-    """Hands a started game off from the network (asyncio, background thread)
-    to the graphical UI (OpenCV, main thread). The main thread blocks on
-    wait_for_game() until either a game starts or the network side is done
-    without one (e.g. the user quit from the CLI menus)."""
-
     def __init__(self):
         self._queue: "queue.Queue" = queue.Queue()
 
@@ -29,41 +36,33 @@ class GameBridge:
 
 
 def build_remote_engine(connection, payload: dict, loop: asyncio.AbstractEventLoop | None = None) -> RemoteGameEngine:
-    """`loop` defaults to the caller's own running loop (the CLI flow calls this
-    from inside the network coroutine itself). client.network.app_bridge.AppBridge
-    passes its own captured loop explicitly instead, since it builds the engine
-    from the main (OpenCV) thread, where there is no running loop to detect."""
     loop = loop or asyncio.get_running_loop()
 
     def send_move(from_pos, to_pos) -> None:
-        envelope = Envelope(type="move", payload={MOVE_FROM_KEY: list(from_pos), MOVE_TO_KEY: list(to_pos)})
+        envelope = Envelope(type=MSG_MOVE, payload={MOVE_FROM_KEY: list(from_pos), MOVE_TO_KEY: list(to_pos)})
         asyncio.run_coroutine_threadsafe(connection.send(envelope), loop)
 
     def send_jump(pos) -> None:
-        envelope = Envelope(type="jump", payload={"pos": list(pos)})
+        envelope = Envelope(type=MSG_JUMP, payload={POS_KEY: list(pos)})
         asyncio.run_coroutine_threadsafe(connection.send(envelope), loop)
 
-    return RemoteGameEngine(payload["your_color"], payload, send_move, send_jump)
+    return RemoteGameEngine(payload[YOUR_COLOR_KEY], payload, send_move, send_jump)
 
 
 def apply_game_envelope(engine: RemoteGameEngine, envelope: Envelope) -> bool:
-    """Applies one game-related envelope to `engine`. Returns True if it was
-    game_over (the signal both pump_game_messages and client.ui.game_runner use
-    to know the game has ended)."""
-    if envelope.type == "game_update":
+    if envelope.type == MSG_GAME_UPDATE:
         engine.apply_snapshot(envelope.payload)
-    elif envelope.type == "game_over":
+    elif envelope.type == MSG_GAME_OVER:
         engine.mark_game_over(envelope.payload)
         return True
-    elif envelope.type == "disconnect_countdown":
+    elif envelope.type == MSG_DISCONNECT_COUNTDOWN:
         engine.set_disconnect_countdown(envelope.payload)
-    elif envelope.type in ("move_rejected", "jump_rejected"):
+    elif envelope.type in (MSG_MOVE_REJECTED, MSG_JUMP_REJECTED):
         logger.info("%s: %s", envelope.type, envelope.payload)
     return False
 
 
 async def pump_game_messages(connection, engine: RemoteGameEngine) -> None:
-    """Keeps applying server broadcasts to `engine` until the game ends."""
     while True:
         envelope = await connection.receive()
         if apply_game_envelope(engine, envelope):

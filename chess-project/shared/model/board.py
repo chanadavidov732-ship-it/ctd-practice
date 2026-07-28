@@ -1,5 +1,8 @@
 class Board:
     def __init__(self, grid):
+        self.load_grid(grid)
+
+    def load_grid(self, grid):
         self.grid = grid
         self.height = len(grid)
         self.width = len(grid[0]) if grid else 0

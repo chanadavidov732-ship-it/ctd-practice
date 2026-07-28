@@ -125,6 +125,20 @@ def test_pawn_promotes_to_queen_on_last_row():
     assert board.get_piece((0, 0)) == "wQ"
 
 
+def test_pawn_promotes_to_queen_when_destination_row_and_col_differ():
+    """Destination (0,3) has row != col, unlike the (0,0) case above -- this is
+    the case that would have caught a previous bug where the promotion check
+    read the wrong tuple index for the destination row."""
+    rows = [ROW, "wP wP wP wP wP wP wP wP"] + [ROW] * 6
+    board, state, engine, controller = make_setup(rows)
+
+    controller.handle_click(350, 150)
+    controller.handle_click(350, 50)
+    engine.advance_time(1000)
+
+    assert board.get_piece((0, 3)) == "wQ"
+
+
 def test_jump_captures_arriving_enemy_and_stays_in_place():
     rows = [ROW] * 5 + ["bR . . . . . . .", ". . . . . . . .", "wR . . . . . . ."]
     board, state, engine, controller = make_setup(rows)

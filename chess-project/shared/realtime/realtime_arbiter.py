@@ -1,6 +1,6 @@
 from shared.config import MOVE_FROM_KEY, MOVE_TO_KEY
 from shared.model.piece import token_type, token_color
-from shared.rules.piece_rules import pawn_promotion_row
+from shared.rules.piece_rules import promote_pawn_if_needed
 from shared.realtime.motion import JUMP_DURATION_MS, LONG_REST_MS, SHORT_REST_MS
 
 class RealTimeArbiter:
@@ -41,9 +41,8 @@ class RealTimeArbiter:
             arriving_token = move["token"]
             piece_type = token_type(arriving_token)
             piece_color = token_color(arriving_token)
-            dest_row = move[MOVE_TO_KEY][1]
-            if piece_type == "P" and dest_row == pawn_promotion_row(piece_color, self.board.height):
-                arriving_token = piece_color + "Q"
+            dest_row = move[MOVE_TO_KEY][0]
+            arriving_token = promote_pawn_if_needed(arriving_token, piece_type, piece_color, dest_row, self.board.height)
 
             self.board.set_piece(move[MOVE_FROM_KEY], ".")
             self.board.set_piece(move[MOVE_TO_KEY], arriving_token)

@@ -32,6 +32,13 @@ def pawn_promotion_row(color, board_height):
     return 0 if color == "w" else board_height - 1
 
 
+def promote_pawn_if_needed(token, piece_type, color, dest_row, board_height):
+    """מחזיר את הכלי שמגיע ליעד - מוכתר למלכה אם זהו רגלי שהגיע לשורת ההכתרה, אחרת ללא שינוי."""
+    if piece_type == "P" and dest_row == pawn_promotion_row(color, board_height):
+        return color + "Q"
+    return token
+
+
 def is_legal_move(piece_type, from_pos, to_pos):
     """בודק אך ורק את חוקיות הצורה של המהלך עבור סוג הכלי הנתון."""
     from shared.config import MOVEMENT_VALIDATORS  # imported here: MOVEMENT_VALIDATORS lives

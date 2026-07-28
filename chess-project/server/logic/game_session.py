@@ -6,12 +6,14 @@ from typing import Optional
 from server.engine_adapter.adapter import create_engine
 from server.logic import rating
 from shared.config import (
+    AIR_CAPTURE_KEY,
     AIRBORNE_KEY,
     BLACK,
     BLACK_USERNAME_KEY,
     CAPTURED_KEY,
     CAPTURED_TOKEN_KEY,
     CLOCK_KEY,
+    EMPTY_CELL,
     KING,
     LOCKED_KEY,
     MOVE_COMPLETION_TIME_KEY,
@@ -72,6 +74,7 @@ class GameSession:
         self._tick_task: Optional[asyncio.Task] = None
         self._disconnect_task: Optional[asyncio.Task] = None
         self._finished = False
+        self.captures = {WHITE: 0, BLACK: 0}
 
     def _color_of(self, client_id: str) -> str | None:
         for p in self.players:
@@ -161,6 +164,7 @@ class GameSession:
                 await asyncio.sleep(TICK_INTERVAL_SECONDS)
                 before = self._snapshot_lock_state()
                 settled = self.engine.advance_time(TICK_MS)
+                self._record_captures(settled)
                 freed = self._locks_freed_since(before)
 
                 anything_active = (
@@ -182,6 +186,14 @@ class GameSession:
             pass
         except Exception:
             logger.exception("session %s: tick loop failed", self.session_id)
+
+    def _record_captures(self, settled) -> None:
+        for move in settled:
+            if move[CAPTURED_TOKEN_KEY] == EMPTY_CELL:
+                continue
+            mover_color = token_color(move[MOVE_TOKEN_KEY])
+            capturing_color = (BLACK if mover_color == WHITE else WHITE) if move.get(AIR_CAPTURE_KEY) else mover_color
+            self.captures[capturing_color] += 1
 
     def _snapshot_lock_state(self) -> tuple[set, set, set]:
         return set(self.game_state.locked), set(self.game_state.resting), set(self.game_state.airborne)
@@ -256,7 +268,8 @@ class GameSession:
         new_ratings = {}
         if None not in (winner.username, loser.username, winner.rating, loser.rating):
             new_winner_rating, new_loser_rating = await rating.apply_match_result(
-                winner.username, winner.rating, loser.username, loser.rating, score_a=1,
+                winner.username, winner.rating, loser.username, loser.rating,
+                captures_winner=self.captures[winner_color], captures_loser=self.captures[loser.color],
             )
             new_ratings = {winner.username: new_winner_rating, loser.username: new_loser_rating}
 

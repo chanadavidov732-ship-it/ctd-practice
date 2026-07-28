@@ -108,6 +108,7 @@ class MatchmakingScreen(Screen):
 
         engine = self.bridge.build_remote_engine(payload)
         wants_menu = run_graphical_game(self.bridge, engine)
+        self.rating = engine.new_ratings.get(self.username, self.rating)
         if wants_menu:
             self._return_to_home()
         else:

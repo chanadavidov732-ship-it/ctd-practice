@@ -1,4 +1,4 @@
-from shared.config import EMPTY_CELL, MOVE_FROM_KEY, MOVE_TO_KEY
+from shared.config import AIR_CAPTURE_KEY, EMPTY_CELL, MOVE_FROM_KEY, MOVE_TO_KEY
 from shared.model.piece import token_type, token_color
 from shared.rules.piece_rules import promote_pawn_if_needed
 from shared.realtime.motion import JUMP_DURATION_MS, LONG_REST_MS, SHORT_REST_MS
@@ -41,7 +41,7 @@ class RealTimeArbiter:
         self.board.set_piece(move[MOVE_FROM_KEY], EMPTY_CELL)
         self._finish_pending_move(move)
         move["captured_token"] = move["token"]
-        move["air_capture"] = True
+        move[AIR_CAPTURE_KEY] = True
         return move
 
     def _settle_arrival(self, move):

@@ -38,6 +38,7 @@ MOVE_TOKEN_KEY = "token"
 MOVE_COMPLETION_TIME_KEY = "completion_time"
 MOVE_DURATION_KEY = "duration"
 CAPTURED_TOKEN_KEY = "captured_token"
+AIR_CAPTURE_KEY = "air_capture"
 
 # --- Game snapshot field names (server<->client wire payload) --------------
 CLOCK_KEY = "clock"

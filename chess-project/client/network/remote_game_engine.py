@@ -40,6 +40,7 @@ class RemoteGameEngine:
         self.game_state = GameState()
         self.is_over = False
         self.disconnect_countdown: dict | None = None
+        self.new_ratings: dict[str, int] = {}
 
         self.apply_snapshot(initial_payload)
 
@@ -88,6 +89,7 @@ class RemoteGameEngine:
     def mark_game_over(self, payload: dict) -> None:
         with self._lock:
             self.is_over = True
+            self.new_ratings = payload.get("new_ratings", {})
 
     def set_disconnect_countdown(self, payload: dict | None) -> None:
         with self._lock:

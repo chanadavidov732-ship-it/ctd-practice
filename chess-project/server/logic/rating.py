@@ -3,21 +3,20 @@ import asyncio
 from server.db.users_repo import update_rating
 
 
-def expected_score(rating_a: int, rating_b: int) -> float:
-    return 1 / (1 + 10 ** ((rating_b - rating_a) / 400))
+def capture_bonus(captures: int) -> int:
+    from server.config import CAPTURE_BONUS_POINTS
 
-
-def new_rating(rating_a: int, rating_b: int, score_a: float) -> int:
-    from server.config import K_FACTOR
-
-    return round(rating_a + K_FACTOR * (score_a - expected_score(rating_a, rating_b)))
+    return captures * CAPTURE_BONUS_POINTS
 
 
 async def apply_match_result(
-    username_a: str, rating_a: int, username_b: str, rating_b: int, score_a: float,
+    winner_username: str, winner_rating: int, loser_username: str, loser_rating: int,
+    captures_winner: int = 0, captures_loser: int = 0,
 ) -> tuple[int, int]:
-    updated_a = new_rating(rating_a, rating_b, score_a)
-    updated_b = new_rating(rating_b, rating_a, 1 - score_a)
-    await asyncio.to_thread(update_rating, username_a, updated_a)
-    await asyncio.to_thread(update_rating, username_b, updated_b)
-    return updated_a, updated_b
+    from server.config import LOSS_PENALTY_POINTS, WIN_BONUS_POINTS
+
+    updated_winner = winner_rating + WIN_BONUS_POINTS + capture_bonus(captures_winner)
+    updated_loser = loser_rating - LOSS_PENALTY_POINTS + capture_bonus(captures_loser)
+    await asyncio.to_thread(update_rating, winner_username, updated_winner)
+    await asyncio.to_thread(update_rating, loser_username, updated_loser)
+    return updated_winner, updated_loser

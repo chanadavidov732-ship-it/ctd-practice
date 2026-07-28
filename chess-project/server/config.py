@@ -35,8 +35,10 @@ TICK_MS = 100
 TICK_INTERVAL_SECONDS = TICK_MS / 1000
 DISCONNECT_RESIGN_SECONDS = 20
 
-# --- Rating (Elo) ------------------------------------------------------------
-K_FACTOR = 32
+# --- Rating -------------------------------------------------------------
+WIN_BONUS_POINTS = 100
+LOSS_PENALTY_POINTS = 30
+CAPTURE_BONUS_POINTS = 2
 
 # --- Matchmaking --------------------------------------------------------------
 RATING_RANGE = 100

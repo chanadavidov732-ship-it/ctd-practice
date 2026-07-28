@@ -19,7 +19,7 @@
 The project started as a text-only, single-process board (click/jump/wait scripted via stdin) and has since grown two more layers on top of the same rule engine, never changing it:
 
 1. **A graphical board** (`client/ui/renderer.py` + `client/ui/sprite_manager.py`, OpenCV/`Img`-based) — reused, unmodified in its core drawing logic, by both the local single-machine mode and the networked mode.
-2. **A client/server multiplayer layer** (FastAPI + WebSockets) — login/register with a persistent ELO rating, matchmaking (rating-range queue) or private rooms (room-ID based, with spectators), real-time game sessions authoritative on the server, and a graphical wrapper-screen flow (Login → Home → Room/Matchmaking → game board → back to Home) that replaced the original textual menu as the default entry point.
+2. **A client/server multiplayer layer** (FastAPI + WebSockets) — login/register with a persistent rating, matchmaking (rating-range queue) or private rooms (room-ID based, with spectators), real-time game sessions authoritative on the server, and a graphical wrapper-screen flow (Login → Home → Room/Matchmaking → game board → back to Home) that replaced the original textual menu as the default entry point.
 
 ---
 
@@ -51,7 +51,7 @@ The project follows strict separation of concerns. **Core principle**: every lay
 ## 3. Technologies
 
 - **Python 3.13**
-- **pytest** (`pytest.ini` at repo root: `pythonpath = .`, `testpaths = tests`) — 118 tests passing as of this writing, all under `tests/unit/`.
+- **pytest** (`pytest.ini` at repo root: `pythonpath = .`, `testpaths = tests`) — 123 tests passing as of this writing, all under `tests/unit/`.
 - **Server** (`server/requirements.txt`): `fastapi`, `uvicorn[standard]`. Plus stdlib `sqlite3`, `hashlib`/`secrets` (PBKDF2-HMAC-SHA256 password hashing, 200,000 iterations, random per-user salt — real hashing, not plaintext).
 - **Client** (`client/requirements.txt`): `websockets`. Plus `opencv-python` (`cv2`) and `numpy` for the graphical layer — **still not declared in any requirements file**, same open item as before the reorg (see section 10).
 - I/O for the legacy text-mode path is via `stdin`/`stdout`, unchanged from the original design.
@@ -95,7 +95,7 @@ chess-project/
 │       └── game_engine.py            # GameEngine: request_move, request_jump, advance_time, is_over, is_locked
 ├── server/
 │   ├── main.py                     # FastAPI app; registers all bus listeners + init_db() at import time; uvicorn.run under __main__
-│   ├── config.py                   # server-side constants: TICK_MS/TICK_INTERVAL_SECONDS, DISCONNECT_RESIGN_SECONDS, K_FACTOR, RATING_RANGE, ID_ALPHABET/ID_LENGTH, DB_PATH/SCHEMA_PATH/PBKDF2_ITERATIONS, HANDLERS/RESPONSE_TYPE
+│   ├── config.py                   # server-side constants: TICK_MS/TICK_INTERVAL_SECONDS, DISCONNECT_RESIGN_SECONDS, WIN_BONUS_POINTS/LOSS_PENALTY_POINTS/CAPTURE_BONUS_POINTS, RATING_RANGE, ID_ALPHABET/ID_LENGTH, DB_PATH/SCHEMA_PATH/PBKDF2_ITERATIONS, HANDLERS/RESPONSE_TYPE
 │   ├── auth/
 │   │   └── auth.py                   # async login(username,password)/register(username,password) -> {"success","message"[,"rating"]}
 │   ├── db/
@@ -103,11 +103,11 @@ chess-project/
 │   │   ├── users_repo.py              # init_db, create_user, verify_user, update_rating — PBKDF2, 200k iterations
 │   │   └── chess.db                   # sqlite file (created by init_db, listed in .gitignore)
 │   ├── logic/
-│   │   ├── rating.py                  # ELO: K_FACTOR=32, expected_score, new_rating, apply_match_result (no draw support — score_a is always 1)
+│   │   ├── rating.py                  # Fixed-point rating: apply_match_result(winner, loser, captures_winner, captures_loser) — winner +WIN_BONUS_POINTS (100), loser -LOSS_PENALTY_POINTS (30), plus a flat capture_bonus(captures) = captures * CAPTURE_BONUS_POINTS added on top for each player, win or lose (no draw support — always a strict winner/loser)
 │   │   ├── matchmaking.py             # Matchmaking: enqueue/find_opponent(±100 rating)/remove, QueuedPlayer, 6-char match IDs
 │   │   ├── room_manager.py            # RoomManager: create_room/join_room/leave_room, 6-char room IDs, players[0]=white/[1]=black, 3rd+ joiner=viewer
 │   │   ├── id_gen.py                  # generate_id(alphabet, length, is_taken=None) — shared random-ID generator; both matchmaking.py and room_manager.py call this instead of duplicating the logic
-│   │   └── game_session.py            # GameSession: 100ms tick loop, DISCONNECT_RESIGN_SECONDS=20, broadcasts game_update/game_over/disconnect_countdown
+│   │   └── game_session.py            # GameSession: 100ms tick loop, DISCONNECT_RESIGN_SECONDS=20, broadcasts game_update/game_over/disconnect_countdown; tracks self.captures{WHITE,BLACK} per tick via _record_captures(settled), fed into rating.apply_match_result at game end
 │   ├── engine_adapter/
 │   │   └── adapter.py                 # create_engine() -> (board, game_state, arbiter, engine) — the one place server builds shared/ objects
 │   └── network/
@@ -183,10 +183,10 @@ chess-project/
 
 ### `server/` — auth, rating, matchmaking, rooms, authoritative sessions
 - **`auth.py`**: `login`/`register` — real PBKDF2-HMAC-SHA256 hashing (200k iterations, random salt) via `users_repo.py`, run off the event loop with `asyncio.to_thread`. No username/password format validation beyond "not already taken."
-- **`rating.py`**: standard ELO, `K_FACTOR=32`. **No draw support** — `apply_match_result` always takes `score_a=1` (a strict winner/loser), called once per finished game from `game_session.py::_finish_game`.
+- **`rating.py`**: fixed-point rating (not ELO) — the winner gains a flat `WIN_BONUS_POINTS=100`, the loser loses a flat `LOSS_PENALTY_POINTS=30`, plus a flat **capture bonus** (`CAPTURE_BONUS_POINTS=2` per piece captured, `capture_bonus(captures)`) added on top for *each* player independently, based on their own capture count for that game — win or lose. New players start at 1200 (`schema.sql` column default). **No draw support** — `apply_match_result` always takes a strict winner/loser, called once per finished game from `game_session.py::_finish_game`.
 - **`matchmaking.py`**: in-memory queue, `find_opponent` matches within `RATING_RANGE=100`; the player already in queue becomes white, the newly-queued one black.
 - **`room_manager.py`**: in-memory rooms keyed by a 6-char generated ID; first 2 joiners are `players` (joiner 0 = white), everyone after is a `viewer`.
-- **`game_session.py`**: `GameSession` — one per active game (room- or matchmaking-based), owns a fresh `shared/` engine via `engine_adapter.create_engine()`, ticks every 100ms, only broadcasts `game_update` when something is actually active (not on fully-idle ticks), auto-resigns a disconnected player after a 20s countdown (`disconnect_countdown` broadcasts, once/second).
+- **`game_session.py`**: `GameSession` — one per active game (room- or matchmaking-based), owns a fresh `shared/` engine via `engine_adapter.create_engine()`, ticks every 100ms, only broadcasts `game_update` when something is actually active (not on fully-idle ticks), auto-resigns a disconnected player after a 20s countdown (`disconnect_countdown` broadcasts, once/second). Also tallies `self.captures[WHITE]`/`self.captures[BLACK]` every tick (`_record_captures`, reading each settled move's `captured_token`/`air_capture` fields), passed to `rating.apply_match_result` as `captures_winner`/`captures_loser` once the game ends. The resulting `new_ratings` dict is broadcast in the `game_over` payload; `RemoteGameEngine.mark_game_over` stores it, and `MatchmakingScreen`/`RoomScreen._enter_game` read the current user's entry out of it to refresh `self.rating` *before* navigating back to `HomeScreen`, so the home screen shows the post-game rating immediately without a reconnect/refresh.
 - **`ws_routes.py`**: one `/ws` route. `HANDLERS` = `echo, login, register, menu_select, create_room, join_room, cancel_room, play, cancel_play, move, jump`. **Important asymmetry to know before touching client network code**: most handlers return a `dict` payload that the route wraps into a correlated response (matching `request_id`); a few (`join_room` on success, `play` on success) instead send their own envelope *directly*, with **no `request_id`** — these arrive client-side as an uncorrelated broadcast, not a request/response pair. Any new screen/handler that sends a request and expects a specific reply shape must check the actual handler code, not assume symmetry (see section 7, new decision on this).
 
 ### `client/network/` — the WebSocket layer
@@ -228,8 +228,8 @@ chess-project/
 3. Successful login/register → `HomeScreen` (username + rating carried as payload, never re-fetched). `HomeScreen`'s Play/Room buttons send `menu_select` (a client-side navigation ack only — it does **not** actually queue for a match or create/join a room) and move to `MatchmakingScreen`/`RoomScreen`.
 4. **`MatchmakingScreen.on_enter`** immediately sends `play`; **`RoomScreen`** waits for a Create/Join click before sending `create_room`/`join_room`. Both screens funnel every subsequent bridge event through the same pattern: state-specific handling, **except** `game_started`/`match_timeout` (Matchmaking) which are always checked first, unconditionally, so a match found in the instant after the user clicks Cancel is still honored — mirrors the `resolved` flag the legacy `client/cli/play.py::_wait_for_match` already used.
 5. On `game_started`, the screen calls `bridge.build_remote_engine(payload)` (constructs a `RemoteGameEngine` whose `send_move`/`send_jump` schedule onto `AppBridge`'s own captured event loop — **not** `asyncio.get_running_loop()`, since this runs on the main thread, which has no running loop of its own) and then blocks in `game_runner.run_graphical_game(bridge, engine)`.
-6. When that returns, the screen either transitions back to `HomeScreen` (same `username`/`rating` payload, **no re-login** — the WebSocket connection and `AppBridge` are untouched) if the user clicked "Back to Menu", or sets `self.should_quit = True` (ends `ScreenManager.run()` entirely) if they quit outright. Either way, `ScreenManager` re-creates the `cv2` window + mouse callback on the next screen transition, since `Renderer` always calls `cv2.destroyAllWindows()` on its own way out.
-7. Server side, in parallel: `GameSession` ticks every 100ms, broadcasting `game_update` only when something is actually active, `game_over` once a king is captured (updates both players' ELO via `rating.apply_match_result`), and `disconnect_countdown` if either player's socket drops (20s auto-resign).
+6. When that returns, the screen first refreshes `self.rating` from `engine.new_ratings.get(self.username, self.rating)` (populated from the `game_over` payload — see decision #26) before transitioning back to `HomeScreen`, so the just-updated rating shows up on the home screen with no reconnect/refresh needed. It transitions back to `HomeScreen` (`username`/refreshed `rating` payload, **no re-login** — the WebSocket connection and `AppBridge` are untouched) if the user clicked "Back to Menu", or sets `self.should_quit = True` (ends `ScreenManager.run()` entirely) if they quit outright. Either way, `ScreenManager` re-creates the `cv2` window + mouse callback on the next screen transition, since `Renderer` always calls `cv2.destroyAllWindows()` on its own way out.
+7. Server side, in parallel: `GameSession` ticks every 100ms, broadcasting `game_update` only when something is actually active, `game_over` once a king is captured (updates both players' rating via `rating.apply_match_result` — fixed win/loss points plus capture bonus, see decision #26), and `disconnect_countdown` if either player's socket drops (20s auto-resign).
 
 ---
 
@@ -265,6 +265,8 @@ chess-project/
 23. **Viewers who join a room mid-game stay on the room wait screen in "viewer" status** — no live spectator board rendering exists yet, in the graphical flow or the legacy CLI one. Explicitly deferred, not a regression (see section 9).
 24. **Keyboard layout is forced to English (US) while any text-entry wrapper screen is open** (`client/ui/keyboard_layout.py::force_english_layout`/`restore_layout`, Windows-only, called around `ScreenManager`'s loop) — `cv2.waitKey()` has no IME/Unicode awareness and returns whatever the OS's *currently active* input language produces, so under a non-Latin layout the same physical letter keys were silently dropped by `TextInput.handle_key`'s plain-ASCII check. Fixed at the OS-input-language level since `cv2` itself never sees a layout-independent key code.
 25. **Room/match ID generation was unified**: `server/logic/id_gen.py::generate_id(alphabet, length, is_taken)` is the one place that generates a random ID and retries on collision; both `Matchmaking.generate_match_id()` and `RoomManager`'s room-ID generator call it with the same `ID_ALPHABET`/`ID_LENGTH` now defined once in `server/config.py`, instead of duplicating the pattern (resolves the TODO item that used to be listed in section 10).
+26. **Rating now rewards captures, not just win/loss**: `GameSession` counts each settled move's captured piece per color as it happens (`_record_captures`), crediting the *mover*'s color for a regular capture but the *defending* color for an air-capture (the airborne piece captures the arriving mover, per decision #9's air-capture-priority rule — see `shared/config.py::AIR_CAPTURE_KEY`, set by `RealTimeArbiter._settle_air_capture`). At game end, each player's own capture count adds a flat `CAPTURE_BONUS_POINTS` (`server/config.py`, currently 2) per capture on top of the win/loss result — independent of who won, so a losing player who traded material still gets partial credit.
+27. **Rating switched from ELO to a fixed-point scheme, and the client-side "stale rating on Home" bug was fixed together**: `rating.py::apply_match_result` no longer computes an ELO delta — the winner always gains a flat `WIN_BONUS_POINTS=100` and the loser always loses a flat `LOSS_PENALTY_POINTS=30` (plus each side's capture bonus from decision #26), because the ELO formula made the point swing depend on the opponent's rating, which didn't match the product requirement of fixed, predictable point values. Separately, the `game_over` payload's `new_ratings` dict was previously computed correctly on the server but silently dropped on the client — `RemoteGameEngine.mark_game_over` only set `is_over = True` and never stored it, so `MatchmakingScreen`/`RoomScreen` kept navigating back to `HomeScreen` with the pre-game `self.rating`, which only became correct after a manual re-login. Fixed by having `mark_game_over` store `payload.get("new_ratings", {})` on the engine, and having each screen's `_enter_game` read `engine.new_ratings.get(self.username, self.rating)` right after `run_graphical_game` returns, before building the `HomeScreen` payload.
 
 ---
 
@@ -274,9 +276,9 @@ chess-project/
 1. ✅ Model (`Board`, `GameState`, `piece.py`), full legality rules (K/Q/R/B/N + full pawn rules incl. promotion), real-time arbiter (Atomic Update, logical `wait`, never real `sleep`), captures + game-over on king capture, jump + air-capture, per-piece lock/rest (no global lock).
 
 **Client/server layer** (`.claude/CLIENT_SERVER_PLAN.md` iterations 0–16, all implemented):
-2. ✅ WebSocket infra, `Envelope` protocol, auth with real password hashing + persistent ELO rating.
+2. ✅ WebSocket infra, `Envelope` protocol, auth with real password hashing + persistent rating.
 3. ✅ Matchmaking (rating-range queue, 60s timeout) and Rooms (create/join by ID, player/viewer roles, cancel).
-4. ✅ Authoritative server-side `GameSession` (100ms tick, disconnect auto-resign with countdown, ELO update on finish).
+4. ✅ Authoritative server-side `GameSession` (100ms tick, disconnect auto-resign with countdown, fixed-point win/loss rating + per-capture bonus on finish — see decisions #26–27).
 5. ✅ `RemoteGameEngine` + the existing `Renderer`/`Controller` reused unmodified for networked play.
 6. ✅ Full graphical wrapper-screen flow replacing the textual menu as the default entry: `LoginScreen` → `HomeScreen` → `RoomScreen`/`MatchmakingScreen` → game board → "Back to Menu" → `HomeScreen` again (no re-login). `client/main.py` defaults to this graphical flow; `client/cli/*.py` untouched, still used by `client/text_test/script_runner.py`.
 
@@ -334,7 +336,7 @@ chess-project/
 - A piece token is always `"{color}{type}"` or `"."` — never accessed as raw `token[0]`/`token[1]` outside `shared/model/piece.py`.
 - `DEFAULT_SPEED=1000`, `JUMP_DURATION_MS=1000`, `LONG_REST_MS=1000`, `SHORT_REST_MS=500` — global constants in `shared/realtime/motion.py`.
 - Server always listens at `ws://127.0.0.1:8000/ws` (`client/config.py::SERVER_URI` — also the value every graphical screen's `AppBridge.connect()` call uses).
-- Starting ELO rating is **1200**; `K_FACTOR=32`; matchmaking rating range is **±100**; match/room IDs are 6-char `[A-Z0-9]` strings.
+- Starting rating is **1200**; win **+100**, loss **-30**, capture **+2** each (per player, regardless of who won — see decision #27); matchmaking rating range is **±100**; match/room IDs are 6-char `[A-Z0-9]` strings.
 - The graphical board window and every wrapper screen share **one** `cv2` window (`WINDOW_NAME = "Image"`, defined in `client/ui/renderer.py`, imported — never redefined — by `client/ui/screen_manager.py`).
 
 ---

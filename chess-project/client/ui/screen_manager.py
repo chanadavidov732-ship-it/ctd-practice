@@ -10,6 +10,7 @@ import numpy as np
 
 from client.network.app_bridge import AppBridge
 from client.ui.img import Img
+from client.ui.keyboard_layout import force_english_layout, restore_layout
 from client.ui.renderer import WINDOW_NAME
 from client.ui.screens.base_screen import Screen
 
@@ -35,6 +36,10 @@ class ScreenManager:
         self.canvas_width, self.canvas_height = canvas_size
         cv2.namedWindow(WINDOW_NAME)
         cv2.setMouseCallback(WINDOW_NAME, self._on_mouse)
+        # See client/ui/keyboard_layout.py: cv2.waitKey() translates key
+        # presses using the OS's active input language, so text fields need
+        # English active to reliably capture plain-ASCII letters.
+        self._previous_keyboard_layout = force_english_layout()
 
         self.active_screen: Screen = start_screen(bridge)
         self.active_screen.on_enter(start_payload or {})
@@ -52,6 +57,7 @@ class ScreenManager:
             self.active_screen.update()
 
             if self.active_screen.should_quit:
+                restore_layout(self._previous_keyboard_layout)
                 cv2.destroyAllWindows()
                 return
 
@@ -68,6 +74,7 @@ class ScreenManager:
                 key &= 0xFF
             closed_by_user = cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1
             if key in QUIT_KEYS or closed_by_user:
+                restore_layout(self._previous_keyboard_layout)
                 cv2.destroyAllWindows()
                 return
             if key != -1:

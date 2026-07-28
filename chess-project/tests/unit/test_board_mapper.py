@@ -12,7 +12,7 @@ def test_pixel_to_cell_top_left():
 
 def test_pixel_to_cell_next_cell():
     mapper = make_mapper([". .", ". ."])
-    assert mapper.pixel_to_cell(150, 50) == (1, 0)
+    assert mapper.pixel_to_cell(150, 50) == (0, 1)
 
 def test_pixel_to_cell_outside_board():
     mapper = make_mapper([". .", ". ."])

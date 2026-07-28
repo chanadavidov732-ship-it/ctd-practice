@@ -6,7 +6,7 @@ class BoardMapper:
     def pixel_to_cell(self, x, y):
         col = x // self.square_size
         row = y // self.square_size
-        pos = (col, row)
+        pos = (row, col)
         if not self.board.is_inside(pos):
             return None
         return pos

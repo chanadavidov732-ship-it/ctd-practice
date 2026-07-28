@@ -17,15 +17,15 @@ def _step(delta):
 
 
 def _squares_between(from_pos, to_pos):
-    dx = _step(to_pos[0] - from_pos[0])
-    dy = _step(to_pos[1] - from_pos[1])
+    dr = _step(to_pos[0] - from_pos[0])
+    dc = _step(to_pos[1] - from_pos[1])
 
     squares = []
-    col, row = from_pos[0] + dx, from_pos[1] + dy
-    while (col, row) != to_pos:
-        squares.append((col, row))
-        col += dx
-        row += dy
+    row, col = from_pos[0] + dr, from_pos[1] + dc
+    while (row, col) != to_pos:
+        squares.append((row, col))
+        row += dr
+        col += dc
     return squares
 
 
@@ -52,14 +52,14 @@ def check_move(board, piece_type, piece_color, from_pos, to_pos):
 
 
 def _check_pawn_move(board, piece_color, from_pos, to_pos):
-    dx = to_pos[0] - from_pos[0]
-    dy = to_pos[1] - from_pos[1]
-    from_row = from_pos[1]
+    dy = to_pos[0] - from_pos[0]
+    dx = to_pos[1] - from_pos[1]
+    from_row = from_pos[0]
     dest_token = board.get_piece(to_pos)
 
     if is_legal_pawn_move(dx, dy, piece_color, from_row, board.height):
         if abs(dy) == 2:
-            mid_pos = (from_pos[0], from_pos[1] + dy // 2)
+            mid_pos = (from_pos[0] + dy // 2, from_pos[1])
             if board.get_piece(mid_pos) != ".":
                 return BLOCKED
         if dest_token != ".":

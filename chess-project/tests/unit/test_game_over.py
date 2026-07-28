@@ -28,7 +28,7 @@ def test_capturing_enemy_king_ends_game():
     controller.handle_click(350, 750)  
     engine.advance_time(3000)
 
-    assert board.get_piece((3, 7)) == "wR"
+    assert board.get_piece((7, 3)) == "wR"
     assert engine.is_over is True
 
 
@@ -47,7 +47,7 @@ def test_moves_after_game_over_are_ignored():
 
     engine.advance_time(3000)
 
-    assert board.get_piece((0, 6)) == "wN"   
+    assert board.get_piece((6, 0)) == "wN"
 
 
 def test_non_king_capture_does_not_end_game():

@@ -18,7 +18,10 @@
       "Bash(python -m pytest --collect-only -q)",
       "Bash(git rm *)",
       "Bash(rm client/config.py)",
-      "Bash(python -c \"import fastapi\")"
+      "Bash(python -c \"import fastapi\")",
+      "Bash(python -c \"import pyautogui\")",
+      "Bash(python -c \"import pygetwindow\")",
+      "Bash(python -c \"import pywinauto\")"
     ]
   }
 }

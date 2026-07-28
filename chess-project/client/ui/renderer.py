@@ -123,7 +123,7 @@ class Renderer:
 
         for row in range(self.board.height):
             for col in range(self.board.width):
-                pos = (col, row)
+                pos = (row, col)
                 token = self.board.get_piece(pos)
                 if token == ".":
                     continue
@@ -144,8 +144,8 @@ class Renderer:
         elapsed = duration - (move["completion_time"] - game_state.clock)
         progress = 0.0 if duration <= 0 else max(0.0, min(1.0, elapsed / duration))
 
-        from_x, from_y = move[MOVE_FROM_KEY][0] * self.square_size, move[MOVE_FROM_KEY][1] * self.square_size
-        to_x, to_y = move[MOVE_TO_KEY][0] * self.square_size, move[MOVE_TO_KEY][1] * self.square_size
+        from_y, from_x = move[MOVE_FROM_KEY][0] * self.square_size, move[MOVE_FROM_KEY][1] * self.square_size
+        to_y, to_x = move[MOVE_TO_KEY][0] * self.square_size, move[MOVE_TO_KEY][1] * self.square_size
 
         x = from_x + (to_x - from_x) * progress
         y = from_y + (to_y - from_y) * progress
@@ -165,7 +165,7 @@ class Renderer:
             if fraction is None:
                 continue
 
-            col, row = pos
+            row, col = pos
             x = self.board_offset_x + col * self.square_size
             y = self.board_offset_y + row * self.square_size + self.square_size - REST_BAR_HEIGHT
 
@@ -228,7 +228,7 @@ class Renderer:
     def _draw_selection(self, canvas_img):
         if self.controller.selected is None:
             return
-        col, row = self.controller.selected["pos"]
+        row, col = self.controller.selected["pos"]
         x = self.board_offset_x + col * self.square_size
         y = self.board_offset_y + row * self.square_size
         cv2.rectangle(
@@ -276,8 +276,8 @@ class Renderer:
             y += PANEL_LINE_HEIGHT
 
     def _format_move(self, move):
-        from_col, from_row = move[MOVE_FROM_KEY]
-        to_col, to_row = move[MOVE_TO_KEY]
+        from_row, from_col = move[MOVE_FROM_KEY]
+        to_row, to_col = move[MOVE_TO_KEY]
         text = f"{move['token']} ({from_col},{from_row})->({to_col},{to_row})"
         if move.get("captured_token", ".") != ".":
             text += " x"

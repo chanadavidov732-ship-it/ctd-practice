@@ -1,3 +1,3 @@
 from collections import namedtuple
 
-Position = namedtuple("Position", ["col", "row"])
+Position = namedtuple("Position", ["row", "col"])
